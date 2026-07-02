@@ -112,6 +112,18 @@ class PersonPose:
     track_id: int | None = None
     extra: dict = field(default_factory=dict)
 
+    def scaled(self, sx: float, sy: float) -> "PersonPose":
+        """픽셀 좌표를 (sx, sy) 배율로 변환한 사본. 표시 해상도가 추론 해상도와
+        다를 때(작은 프레임으로 추론 → 큰 화면에 그리기) 사용. world/각도 불변."""
+        kps = self.keypoints.copy()
+        kps[:, 0] *= sx
+        kps[:, 1] *= sy
+        x1, y1, x2, y2 = self.bbox
+        return PersonPose(keypoints=kps,
+                          bbox=(x1 * sx, y1 * sy, x2 * sx, y2 * sy),
+                          world_landmarks=self.world_landmarks,
+                          track_id=self.track_id, extra=self.extra)
+
     @property
     def bbox_area(self) -> float:
         x1, y1, x2, y2 = self.bbox

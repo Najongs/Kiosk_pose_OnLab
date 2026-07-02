@@ -58,23 +58,50 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
 
 def draw_skeleton(frame: np.ndarray, pose: PersonPose, vis_thresh: float = 0.3,
                   color=(0, 235, 0), joint_color=(0, 160, 255)) -> None:
-    """어두운 외곽선 위에 본선을 얹어 어떤 배경에서도 또렷하게, 관절은
-    흰 코어 + 색 링으로 그린다."""
+    """네온 스타일 스켈레톤: 가산 블렌딩 글로우 + 밝은 본선 + 흰 코어 관절.
+    선 굵기는 화면 해상도에 비례해 풀스크린에서도 가늘어 보이지 않는다."""
     kps = pose.keypoints
+    h = frame.shape[0]
+    lw = max(2, h // 260)  # 본선 굵기 (1080p ≈ 4px)
     lines = []
+    joints = []
     for a, b in SKELETON_EDGES:
         if kps[a, 2] >= vis_thresh and kps[b, 2] >= vis_thresh:
             lines.append(((int(kps[a, 0]), int(kps[a, 1])),
                           (int(kps[b, 0]), int(kps[b, 1]))))
-    for pa, pb in lines:  # 외곽선(그림자) 패스
-        cv2.line(frame, pa, pb, (18, 26, 18), 6, cv2.LINE_AA)
-    for pa, pb in lines:  # 본선
-        cv2.line(frame, pa, pb, color, 3, cv2.LINE_AA)
     for i in range(len(kps)):
         if kps[i, 2] >= vis_thresh:
-            p = (int(kps[i, 0]), int(kps[i, 1]))
-            cv2.circle(frame, p, 5, joint_color, 2, cv2.LINE_AA)   # 색 링
-            cv2.circle(frame, p, 2, (255, 255, 255), -1, cv2.LINE_AA)  # 흰 코어
+            joints.append((int(kps[i, 0]), int(kps[i, 1])))
+    if not lines and not joints:
+        return
+
+    # 글로우 패스: 사람 주변 ROI 에만 두껍게 그려 블러 후 가산(비용 최소화)
+    pts = np.array([p for pair in lines for p in pair] + joints)
+    m = lw * 4 + 12
+    x1 = max(0, int(pts[:, 0].min()) - m)
+    y1 = max(0, int(pts[:, 1].min()) - m)
+    x2 = min(frame.shape[1], int(pts[:, 0].max()) + m)
+    y2 = min(frame.shape[0], int(pts[:, 1].max()) + m)
+    if x2 > x1 and y2 > y1:
+        glow = np.zeros((y2 - y1, x2 - x1, 3), dtype=np.uint8)
+        for pa, pb in lines:
+            cv2.line(glow, (pa[0] - x1, pa[1] - y1), (pb[0] - x1, pb[1] - y1),
+                     color, lw * 3, cv2.LINE_AA)
+        for p in joints:
+            cv2.circle(glow, (p[0] - x1, p[1] - y1), lw * 2 + 2, joint_color, -1,
+                       cv2.LINE_AA)
+        glow = cv2.blur(glow, (11, 11))
+        roi = frame[y1:y2, x1:x2]
+        cv2.addWeighted(roi, 1.0, glow, 0.65, 0, roi)
+
+    bright = tuple(min(255, c + 70) for c in color)
+    for pa, pb in lines:  # 본선
+        cv2.line(frame, pa, pb, bright, lw, cv2.LINE_AA)
+    r = lw + 2
+    for p in joints:
+        cv2.circle(frame, p, r, joint_color, 2, cv2.LINE_AA)          # 색 링
+        cv2.circle(frame, p, max(2, r - 3), (255, 255, 255), -1,
+                   cv2.LINE_AA)                                        # 흰 코어
 
 
 def _rounded_shape(canvas: np.ndarray, x1: int, y1: int, x2: int, y2: int,
@@ -159,13 +186,17 @@ class TextItem:
 
 
 def draw_texts(frame_bgr: np.ndarray, items: list[TextItem]) -> np.ndarray:
-    """텍스트 여러 개를 한 번의 PIL 변환으로 렌더. 새 BGR 배열 반환."""
+    """텍스트 여러 개를 한 번의 PIL 패스로 렌더. 새 BGR 배열 반환.
+    풀프레임 색변환(BGR↔RGB) 2회를 아끼기 위해 BGR 버퍼를 그대로 PIL 에
+    올리고 색만 뒤집어 그린다(고해상도에서 수 ms 절약)."""
     if not items:
         return frame_bgr
-    img = Image.fromarray(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB))
+    img = Image.fromarray(frame_bgr)  # BGR 을 RGB 인 척 취급
     draw = ImageDraw.Draw(img)
     for it in items:
         font = get_font(it.size)
-        draw.text(it.xy, it.text, font=font, fill=it.color, anchor=it.anchor,
-                  stroke_width=it.stroke, stroke_fill=it.stroke_color)
-    return cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        fill = (it.color[2], it.color[1], it.color[0])
+        stroke_fill = (it.stroke_color[2], it.stroke_color[1], it.stroke_color[0])
+        draw.text(it.xy, it.text, font=font, fill=fill, anchor=it.anchor,
+                  stroke_width=it.stroke, stroke_fill=stroke_fill)
+    return np.array(img)

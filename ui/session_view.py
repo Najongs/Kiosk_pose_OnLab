@@ -108,7 +108,9 @@ class SessionView(QWidget):
             return eng.tracker.update(poses)
 
         def render(frame, primary):
-            """표시 루프(카메라 fps): 마지막 추론 결과로 상태 갱신 + 합성."""
+            """표시 루프(카메라 fps): 먼저 화면 해상도로 확대한 뒤 그 위에
+            HUD/스켈레톤을 그린다 — 작은 카메라 프레임에 그리고 확대하면
+            글자·선이 전부 뭉개지기 때문."""
             eng = holder.get("engine")
             if eng is None:
                 # 모델 로딩 중 — 카메라 미리보기만 먼저 보여준다
@@ -119,11 +121,15 @@ class SessionView(QWidget):
                 eng.session.skip(now)
             state = eng.session.update(primary, now)
             ref = get_ref(state.target_pose.name) if state.target_pose else None
-            composed = compose(frame, primary, state, pass_acc, ref, anim_t=now)
+            disp = fit_frame(frame, self._view_size)
+            if disp.shape[:2] != frame.shape[:2] and primary is not None:
+                primary = primary.scaled(disp.shape[1] / frame.shape[1],
+                                         disp.shape[0] / frame.shape[0])
+            composed = compose(disp, primary, state, pass_acc, ref, anim_t=now)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)
-            return fit_frame(composed, self._view_size), state
+            return composed, state
 
         self._infer_fn = infer
         self._render_fn = render

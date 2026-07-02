@@ -93,20 +93,26 @@ class VersusView(QWidget):
             return poses
 
         def render(frame, poses):
-            """표시 루프(카메라 fps): 마지막 추론 결과로 상태 갱신 + 분할 HUD."""
+            """표시 루프(카메라 fps): 화면 해상도로 먼저 확대 후 HUD 를 그린다
+            (작은 프레임에 그려서 확대하면 글자·선이 뭉개짐)."""
             ctx = holder.get("ctx")
             if ctx is None:
                 return fit_frame(frame, self._view_size), None  # 모델 로딩 중 미리보기
             _, vs = ctx
             poses = poses or []
             w = frame.shape[1]
-            a, b = assign_players(poses, w)  # 좌반=P1, 우반=P2 (화면 절반 기준)
             state = vs.update(poses, time.monotonic() - start, w)
-            composed = compose_versus(frame, a, b, state, pass_acc)
+            disp = fit_frame(frame, self._view_size)
+            if disp.shape[:2] != frame.shape[:2]:
+                sx = disp.shape[1] / frame.shape[1]
+                sy = disp.shape[0] / frame.shape[0]
+                poses = [p.scaled(sx, sy) for p in poses]
+            a, b = assign_players(poses, disp.shape[1])  # 좌반=P1, 우반=P2
+            composed = compose_versus(disp, a, b, state, pass_acc)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)
-            return fit_frame(composed, self._view_size), state
+            return composed, state
 
         self._infer_fn = infer
         self._render_fn = render

@@ -208,6 +208,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                     (160, 231, 127), 6, cv2.LINE_AA)
         texts.append(TextItem(str(n), (w // 2, h // 2), max(90, h // 4),
                               (255, 255, 255), anchor="mm", stroke=6))
+        panel(frame, int(w * 0.30), int(h * 0.765), int(w * 0.70), int(h * 0.835),
+              radius=int(h * 0.035), color=(14, 16, 26), alpha=0.55)
         texts.append(TextItem(state.message, (w // 2, int(h * 0.80)),
                               max(24, h // 22), (220, 235, 255), anchor="mm"))
 
@@ -234,6 +236,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         gauge_bar(frame, hx, hy, hw, hh, state.hold_progress, fg=(230, 180, 40))
         texts.append(TextItem("유지", (hx - 12, hy + hh // 2), max(18, h // 34),
                               (255, 235, 180), anchor="rm"))
+        panel(frame, int(w * 0.26), int(h * 0.765), int(w * 0.74), int(h * 0.835),
+              radius=int(h * 0.035), color=(14, 16, 26), alpha=0.55)
         texts.append(TextItem(state.message, (w // 2, int(h * 0.80)),
                               max(22, h // 24), (255, 255, 255), anchor="mm"))
 
