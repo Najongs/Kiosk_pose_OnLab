@@ -14,6 +14,7 @@ world_landmarks(미터 단위 3D)도 함께 반환해 각도 계산을 견고하
 from __future__ import annotations
 
 import os
+import threading
 
 import cv2
 import mediapipe as mp
@@ -68,17 +69,20 @@ class MediaPipeEstimator(PoseEstimator):
         )
         self._landmarker = vision.PoseLandmarker.create_from_options(options)
         self._ts_ms = 0  # VIDEO 모드용 단조 증가 타임스탬프
+        # 워밍 캐시(core.warm)로 공유될 수 있으므로 그래프 호출을 직렬화
+        self._call_lock = threading.Lock()
 
     def estimate(self, frame_bgr: np.ndarray) -> list[PersonPose]:
         h, w = frame_bgr.shape[:2]
         rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
 
-        if self._image_mode:
-            result = self._landmarker.detect(mp_image)
-        else:
-            self._ts_ms += 33  # ~30fps 가정 (정확한 fps 없이도 단조 증가면 충분)
-            result = self._landmarker.detect_for_video(mp_image, self._ts_ms)
+        with self._call_lock:
+            if self._image_mode:
+                result = self._landmarker.detect(mp_image)
+            else:
+                self._ts_ms += 33  # ~30fps 가정 (정확한 fps 없이도 단조 증가면 충분)
+                result = self._landmarker.detect_for_video(mp_image, self._ts_ms)
 
         if not result.pose_landmarks:
             return []

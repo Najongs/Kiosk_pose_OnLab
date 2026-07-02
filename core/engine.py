@@ -29,7 +29,8 @@ def load_settings(path: str = _SETTINGS) -> dict:
 
 class Engine:
     def __init__(self, pose_names: list[str], settings: dict | None = None,
-                 static_image_mode: bool = False, app_config: dict | None = None):
+                 static_image_mode: bool = False, app_config: dict | None = None,
+                 reuse_estimator: bool = False):
         s = settings or load_settings()
         pe = s.get("pose_estimator", {})
         tr = s.get("tracker", {})
@@ -37,12 +38,23 @@ class Engine:
         ac = app_config or {}
 
         self.pass_accuracy = float(ac.get("passAccuracy", sc.get("pass_accuracy", 85.0)))
-        self.estimator = MediaPipeEstimator(
-            num_poses=pe.get("num_poses", 1),
-            min_detection_confidence=pe.get("min_detection_confidence", 0.5),
-            min_tracking_confidence=pe.get("min_tracking_confidence", 0.5),
-            static_image_mode=static_image_mode,
-        )
+        if reuse_estimator and not static_image_mode:
+            # 앱(키오스크)에서는 세션마다 모델을 다시 로드하지 않는다
+            from .warm import get_estimator
+            self.estimator = get_estimator(
+                num_poses=pe.get("num_poses", 1),
+                min_detection_confidence=pe.get("min_detection_confidence", 0.5),
+                min_tracking_confidence=pe.get("min_tracking_confidence", 0.5),
+            )
+            self._owns_estimator = False
+        else:
+            self.estimator = MediaPipeEstimator(
+                num_poses=pe.get("num_poses", 1),
+                min_detection_confidence=pe.get("min_detection_confidence", 0.5),
+                min_tracking_confidence=pe.get("min_tracking_confidence", 0.5),
+                static_image_mode=static_image_mode,
+            )
+            self._owns_estimator = True
         self.tracker = PrimarySubjectTracker(
             center_weight=tr.get("center_weight", 0.3),
             min_iou_keep=tr.get("min_iou_keep", 0.2),
@@ -69,4 +81,5 @@ class Engine:
         return primary, state
 
     def close(self) -> None:
-        self.estimator.close()
+        if self._owns_estimator:
+            self.estimator.close()

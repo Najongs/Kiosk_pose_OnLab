@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import cv2
 import numpy as np
 from PySide6.QtGui import QImage, QPixmap
 
@@ -23,7 +24,25 @@ QCheckBox { spacing: 10px; }
 
 
 def bgr_to_qpixmap(frame_bgr: np.ndarray) -> QPixmap:
-    rgb = np.ascontiguousarray(frame_bgr[:, :, ::-1])
-    h, w = rgb.shape[:2]
-    img = QImage(rgb.data, w, h, 3 * w, QImage.Format.Format_RGB888)
-    return QPixmap.fromImage(img.copy())
+    # Format_BGR888 로 채널 스왑 복사(비쌈)를 생략 — fromImage 가 픽스맵으로 복사함
+    frame = np.ascontiguousarray(frame_bgr)
+    h, w = frame.shape[:2]
+    img = QImage(frame.data, w, h, 3 * w, QImage.Format.Format_BGR888)
+    return QPixmap.fromImage(img)
+
+
+def fit_frame(frame_bgr: np.ndarray, size: tuple[int, int] | None) -> np.ndarray:
+    """뷰 크기에 맞게 비율 유지 리사이즈. 워커 스레드에서 호출해 UI 스레드의
+    고비용 QPixmap.scaled(Smooth) 를 없앤다. size 가 아직 없으면 원본 그대로."""
+    if not size:
+        return frame_bgr
+    vw, vh = size
+    if vw < 16 or vh < 16:
+        return frame_bgr
+    h, w = frame_bgr.shape[:2]
+    s = min(vw / w, vh / h)
+    if 0.98 <= s <= 1.0:
+        return frame_bgr
+    nw, nh = max(1, int(w * s)), max(1, int(h * s))
+    interp = cv2.INTER_AREA if s < 1.0 else cv2.INTER_LINEAR
+    return cv2.resize(frame_bgr, (nw, nh), interpolation=interp)

@@ -1,4 +1,12 @@
-"""세션 화면: 카메라 루프 + 스켈레톤/HUD/가이드 + 사운드 + 리더보드 기록."""
+"""세션 화면: 카메라 루프 + 스켈레톤/HUD/가이드 + 사운드 + 리더보드 기록.
+
+성능 원칙:
+- 카메라 열기·모델 로드·추론·합성·리사이즈는 전부 워커 스레드(FrameWorker).
+- 모델은 core.warm 으로 앱 수명 동안 재사용(세션마다 재로딩 없음).
+- UI 스레드는 완성된 프레임을 QPixmap 으로 바꿔 표시만 한다.
+- 세션별 가변 상태(엔진 등)는 begin() 의 클로저가 소유 — 이전 워커가 아직
+  종료 중이어도 새 세션과 상태를 공유하지 않는다.
+"""
 
 from __future__ import annotations
 
@@ -9,13 +17,12 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 
 from core.engine import Engine
-from core.frame_source import FrameSource
 from core.leaderboard import add_record
 from core.refs import get_ref
 from core.session import SessionState, State
 from core.sound import Sound
 from ui.frame_worker import FrameWorker
-from ui.qtutil import bgr_to_qpixmap
+from ui.qtutil import bgr_to_qpixmap, fit_frame
 from ui.renderer import compose
 
 
@@ -34,11 +41,14 @@ class SessionView(QWidget):
         self._quit_btn = QPushButton("✕", self)
         self._quit_btn.clicked.connect(self._exit)
 
-        self._engine: Engine | None = None
-        self._source: FrameSource | None = None
+        self._engine: Engine | None = None  # 검증 도구 호환용 참조(워커가 생성)
+        self._source = None                  # 헤드리스 render_once 용
+        self._process_fn = None
         self._sound: Sound | None = None
+        self._sound_key: tuple | None = None
         self._thread: QThread | None = None
         self._worker: FrameWorker | None = None
+        self._view_size: tuple[int, int] = (0, 0)
         self._name = ""
         self._start = 0.0
         self._saved = False
@@ -46,77 +56,105 @@ class SessionView(QWidget):
         self._reset_cue()
 
     # ---- 생명주기 ----
-    def begin(self, name: str, app_config: dict, source: FrameSource) -> None:
+    def begin(self, name: str, app_config: dict, source) -> None:
+        """source: FrameSource 인스턴스(헤드리스 검증) 또는 팩토리(callable).
+        팩토리면 워커 스레드에서 열어 UI 가 멈추지 않는다."""
         self.stop()
         self._name = name
-        self._app_config = app_config
-        self._engine = None  # 무거운 모델 로드는 워커 스레드에서 지연 생성
         self._pass = float(app_config.get("passAccuracy", 85.0))
-        self._sound = Sound(app_config.get("sound", True), app_config.get("voice", True))
-        self._source = source
+        key = (bool(app_config.get("sound", True)), bool(app_config.get("voice", True)))
+        if self._sound is None or self._sound_key != key:
+            self._sound = Sound(*key)
+            self._sound_key = key
         self._start = time.monotonic()
         self._saved = False
         self._reset_cue()
         self._home_btn.hide()
         self._label.setText("카메라·모델 준비 중…")
         self._label.setStyleSheet("color:#eef2fb; font-size:30px; background:#05070d;")
-        self._start_worker(source)
 
-    def _start_worker(self, source: FrameSource) -> None:
+        cfg = app_config
+        pass_acc = self._pass
+        start = self._start
+        holder: dict = {}
+
+        def process(frame):
+            """워커 스레드 전용. GUI 객체 생성 금지. 엔진은 이 세션(클로저)이 소유."""
+            eng = holder.get("engine")
+            if eng is None:
+                eng = Engine(cfg["poseSet"], app_config=cfg, reuse_estimator=True)
+                holder["engine"] = eng
+                self._engine = eng
+            primary, state = eng.process(frame, time.monotonic() - start)
+            ref = get_ref(state.target_pose.name) if state.target_pose else None
+            composed = compose(frame, primary, state, pass_acc, ref)
+            return fit_frame(composed, self._view_size), state
+
+        self._process_fn = process
+        if not callable(source):
+            self._source = source
+        self._start_worker(source, process)
+
+    def _start_worker(self, source, process_fn) -> None:
         self._thread = QThread(self)
-        self._worker = FrameWorker(source, self._process)
+        self._worker = FrameWorker(source, process_fn)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.ready.connect(self._on_ready)   # 메인 스레드(큐)
+        self._worker.failed.connect(self._on_failed)
         self._worker.stopped.connect(self._thread.quit)
         self._thread.start()
-
-    def _process(self, frame):
-        """워커 스레드에서 실행: 추론+합성(무거운 작업). GUI 객체 생성 금지.
-        MediaPipe 엔진은 여기서(워커 스레드) 지연 생성 → 생성+사용 스레드 일치."""
-        if self._engine is None:
-            self._engine = Engine(self._app_config["poseSet"], app_config=self._app_config)
-        primary, state = self._engine.process(frame, self._now())
-        ref = get_ref(state.target_pose.name) if state.target_pose else None
-        composed = compose(frame, primary, state, self._pass, ref)
-        return composed, state
 
     def stop(self) -> None:
         if self._worker is not None:
             self._worker.stop()
+            for sig, slot in ((self._worker.ready, self._on_ready),
+                              (self._worker.failed, self._on_failed)):
+                try:
+                    sig.disconnect(slot)
+                except (RuntimeError, TypeError):
+                    pass
         if self._thread is not None:
             self._thread.quit()
-            self._thread.wait(2000)
+            if self._thread.wait(500):
+                self._thread.deleteLater()
+            else:
+                # 추론 중인 프레임이 끝나면 워커가 소스를 해제하고 스스로 종료한다.
+                # UI 스레드는 기다리지 않는다(응답없음 방지).
+                self._thread.finished.connect(self._thread.deleteLater)
             self._thread = None
             self._worker = None
-        if self._source is not None:
-            self._source.release()
+        if self._source is not None:  # 직접 받은 소스(헤드리스)만 여기서 해제
+            try:
+                self._source.release()
+            except Exception:
+                pass
             self._source = None
-        if self._engine is not None:
-            self._engine.close()
-            self._engine = None
+        self._engine = None  # 공유 모델은 core.warm 이 관리 — close 하지 않음
 
     def _exit(self) -> None:
         self.stop()
         self.exitRequested.emit()
 
-    def _now(self) -> float:
-        return time.monotonic() - self._start
-
     # ---- 결과 수신(메인 스레드): 표시 + 사운드 + 기록 ----
     @Slot(object, object)
     def _on_ready(self, composed, state: SessionState) -> None:
-        self._label.setPixmap(
-            bgr_to_qpixmap(composed).scaled(
-                self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation)
-        )
+        pix = bgr_to_qpixmap(composed)
+        if pix.width() > self._label.width() or pix.height() > self._label.height():
+            pix = pix.scaled(self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                             Qt.TransformationMode.FastTransformation)
+        self._label.setPixmap(pix)
         self._cue(state)
         if state.state == State.DONE and not self._saved:
             self._saved = True
             add_record(self._name, state.final_summary or 0.0, state.results,
                        datetime.datetime.now().isoformat())
             self._home_btn.show()
+
+    @Slot(str)
+    def _on_failed(self, msg: str) -> None:
+        self._label.setText(f"시작/처리 실패: {msg}")
+        self._home_btn.show()
 
     # ---- 사운드/음성 큐 (상태 전이 1회성) ----
     def _reset_cue(self) -> None:
@@ -154,6 +192,7 @@ class SessionView(QWidget):
     # ---- 레이아웃 ----
     def resizeEvent(self, e) -> None:
         self._label.setGeometry(0, 0, self.width(), self.height())
+        self._view_size = (self.width(), self.height())  # 워커가 읽는 리사이즈 목표
         self._quit_btn.setFixedSize(56, 44)
         self._quit_btn.move(self.width() - 72, 16)
         self._home_btn.adjustSize()
@@ -163,10 +202,10 @@ class SessionView(QWidget):
 
     def render_once(self):
         """헤드리스 검증용: 워커 없이 한 프레임 동기 처리."""
-        if self._engine is None or self._source is None:
+        if self._process_fn is None or self._source is None:
             return
         frame = self._source.read()
         if frame is None:
             return
-        composed, state = self._process(frame)
+        composed, state = self._process_fn(frame)
         self._on_ready(composed, state)

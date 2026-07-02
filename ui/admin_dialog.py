@@ -179,10 +179,10 @@ class CaptureDialog(QDialog):
     def _start(self, index: int) -> None:
         try:
             from core.frame_source import CameraSource
-            from core.mediapipe_estimator import MediaPipeEstimator
             from core.tracker import PrimarySubjectTracker
+            from core.warm import get_estimator
             self._source = CameraSource(index)
-            self._estimator = MediaPipeEstimator()
+            self._estimator = get_estimator(num_poses=1)  # 공유 모델 재사용
             self._tracker = PrimarySubjectTracker()
             self._engine = True
             self._timer.start(33)
@@ -216,8 +216,7 @@ class CaptureDialog(QDialog):
         self._timer.stop()
         if self._source is not None:
             self._source.release()
-        if getattr(self, "_estimator", None) is not None:
-            self._estimator.close()
+        # 추정기는 core.warm 공유 인스턴스 — 닫지 않는다
         super().closeEvent(e)
 
 

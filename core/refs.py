@@ -18,15 +18,26 @@ _PATH = os.path.join(_ROOT, "config", "refs.json")
 REF_VIS = 0.3
 
 
+# get_ref 는 세션 중 매 프레임 호출되므로 디스크를 매번 읽지 않고 메모리에
+# 캐시한다. 파일 변경은 같은 프로세스의 set_ref/clear_ref 를 통해서만 일어난다
+# (외부에서 refs.json 을 고치면 앱 재시작 필요).
+_cache: dict[str, list[list[float]]] | None = None
+
+
 def _load() -> dict[str, list[list[float]]]:
-    try:
-        with open(_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+    global _cache
+    if _cache is None:
+        try:
+            with open(_PATH, encoding="utf-8") as f:
+                _cache = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            _cache = {}
+    return _cache
 
 
 def _save(m: dict) -> None:
+    global _cache
+    _cache = m
     os.makedirs(os.path.dirname(_PATH), exist_ok=True)
     with open(_PATH, "w", encoding="utf-8") as f:
         json.dump(m, f, ensure_ascii=False)

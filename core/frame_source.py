@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import glob
 import os
+import sys
 from abc import ABC, abstractmethod
 
 import cv2
@@ -68,21 +69,31 @@ class ImageSource(FrameSource):
         self._idx = 0
         self._loop = loop  # True 면 마지막 이후 처음으로 돌아감(앱 구동 테스트용)
         self.last_path: str | None = None
+        # 반복(loop) 재생 시 같은 파일을 매번 디코드하지 않도록 캐시.
+        # 하위에서 프레임에 오버레이를 그리므로 복사본을 내보낸다.
+        self._cache: dict[str, np.ndarray] = {}
+
+    _CACHE_MAX = 32
 
     def read(self) -> np.ndarray | None:
-        if self._idx >= len(self._paths):
-            if not self._loop:
-                return None
-            self._idx = 0
-        path = self._paths[self._idx]
-        self._idx += 1
-        frame = imread_unicode(path)
-        if frame is None:
-            # 손상/미지원 파일은 건너뛴다
+        for _ in range(len(self._paths) + 1):
+            if self._idx >= len(self._paths):
+                if not self._loop:
+                    return None
+                self._idx = 0
+            path = self._paths[self._idx]
+            self._idx += 1
             self.last_path = path
-            return self.read()
-        self.last_path = path
-        return frame
+            cached = self._cache.get(path)
+            if cached is not None:
+                return cached.copy()
+            frame = imread_unicode(path)
+            if frame is None:
+                continue  # 손상/미지원 파일은 건너뛴다
+            if self._loop and len(self._cache) < self._CACHE_MAX:
+                self._cache[path] = frame.copy()
+            return frame
+        return None  # 읽을 수 있는 파일이 하나도 없음
 
     def is_open(self) -> bool:
         return self._loop or self._idx < len(self._paths)
@@ -114,12 +125,23 @@ class CameraSource(FrameSource):
     """웹캠/키오스크 카메라. 카메라가 준비되면 사용."""
 
     def __init__(self, index: int = 0, width: int = 1280, height: int = 720, fps: int = 30):
-        self._cap = cv2.VideoCapture(index)
+        cap = None
+        if sys.platform == "win32":
+            # Windows 기본(MSMF) 백엔드는 열기에 수 초 걸릴 수 있어 DirectShow 우선
+            cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+            if not cap.isOpened():
+                cap.release()
+                cap = None
+        if cap is None:
+            cap = cv2.VideoCapture(index)
+        self._cap = cap
         if not self._cap.isOpened():
             raise RuntimeError(f"카메라를 열 수 없음: index={index}")
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self._cap.set(cv2.CAP_PROP_FPS, fps)
+        # 오래된 프레임이 쌓여 화면이 뒤처지지 않도록 버퍼 최소화
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     def read(self) -> np.ndarray | None:
         ok, frame = self._cap.read()

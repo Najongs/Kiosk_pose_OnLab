@@ -51,38 +51,21 @@ class MainWindow(QMainWindow):
         if poses:
             cfg = dict(cfg)
             cfg["poseSet"] = list(poses)
-        try:
-            source = self._source_factory()
-        except Exception as e:  # 카메라 없음 등
-            self.home.set_status(f"카메라 오류: {e}")
-            return
         self.home.set_status("")
         try:
-            self.session.begin(name, cfg, source)
+            # 카메라 열기/모델 로드는 세션 뷰의 워커 스레드에서 수행(클릭 즉시 전환)
+            self.session.begin(name, cfg, self._source_factory)
         except Exception as e:
-            try:
-                source.release()
-            except Exception:
-                pass
             self.home.set_status(f"시작 실패: {e}")
             return
         self._stack.setCurrentWidget(self.session)
 
     def _start_versus(self) -> None:
         cfg = load_app_config()
-        try:
-            source = self._source_factory()
-        except Exception as e:
-            self.home.set_status(f"카메라 오류: {e}")
-            return
         self.home.set_status("")
         try:
-            self.versus.begin(cfg, source)
+            self.versus.begin(cfg, self._source_factory)
         except Exception as e:
-            try:
-                source.release()
-            except Exception:
-                pass
             self.home.set_status(f"시작 실패: {e}")
             return
         self._stack.setCurrentWidget(self.versus)
@@ -94,6 +77,13 @@ class MainWindow(QMainWindow):
     def _open_admin(self) -> None:
         AdminDialog(self._camera_index, self).exec()
         self.home.refresh()
+
+    def closeEvent(self, e) -> None:
+        self.session.stop()
+        self.versus.stop()
+        from core.warm import close_all
+        close_all()
+        super().closeEvent(e)
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
         # Esc: 세션/대결 중이면 홈으로, 홈에서는 종료. (일반 글자키 Q 로는 종료 안 함)
