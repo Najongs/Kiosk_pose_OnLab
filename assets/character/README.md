@@ -26,11 +26,12 @@
 - 무료 리깅 캐릭터: Mixamo 기본 캐릭터, Quaternius, Kenney 등.
 
 ## 현재 상태
-- **`Cinto_legging.fbx` = 공식 캐릭터** (Mixamo 리깅: 본 46개·스킨 웨이트·
-  텍스처 내장 확인 완료) → `Cinto_legging.glb` 로 변환됨.
-  `web/public/character.glb` 에 배치되어 웹앱 3D 가이드가 이 캐릭터를 사용.
-- `Cinto.fbx` 는 리깅 없는 원본 (참고용), `Box Turn.fbx` 는 Mixamo Y-Bot
-  테스트 파일.
+- **`Cinto_legging.fbx` = 공식 캐릭터 원본** (Mixamo 리깅: 본 46개·스킨
+  웨이트·텍스처 내장 확인 완료)
+- **`Cinto_legging.glb`** = 변환본 — `web/public/character.glb` 로 배치되어
+  웹앱 3D 가이드가 이 캐릭터를 사용.
+- 리깅 없는 구버전(Cinto.fbx)·Y-Bot 테스트 파일 등은 정리됨 (git 히스토리에
+  남아 있어 필요하면 복구 가능).
 - 다음 단계: 목표 자세 관절 데이터로 본 리타게팅 → 캐릭터가 자세 시연.
 
 새 캐릭터로 바꾸려면: 리깅된 FBX/GLB 를 이 폴더에 넣고 알려주세요.
