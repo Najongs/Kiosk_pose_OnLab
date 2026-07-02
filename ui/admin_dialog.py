@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QHBoxLayout,
-    QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
+    QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
+    QWidget,
 )
 
 from core.appconfig import load_app_config, reset_app_config, save_app_config
@@ -22,8 +23,16 @@ class AdminDialog(QDialog):
         self._camera_index = camera_index
         cfg = load_app_config()
 
-        root = QVBoxLayout(self)
-        root.addWidget(_h1("관리자 설정"))
+        # 자세가 많아져도 잘리지 않도록 본문은 스크롤 영역에, 하단 버튼은 고정
+        outer = QVBoxLayout(self)
+        outer.addWidget(_h1("관리자 설정"))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        root = QVBoxLayout(body)
+        scroll.setWidget(body)
+        outer.addWidget(scroll, 1)
 
         form = QFormLayout()
         self.pass_spin = QDoubleSpinBox()
@@ -106,7 +115,7 @@ class AdminDialog(QDialog):
         foot.addWidget(rst)
         foot.addStretch()
         foot.addWidget(close)
-        root.addLayout(foot)
+        outer.addLayout(foot)
 
     def _collect(self) -> dict:
         cfg = load_app_config()

@@ -137,6 +137,9 @@ class CameraSource(FrameSource):
         self._cap = cap
         if not self._cap.isOpened():
             raise RuntimeError(f"카메라를 열 수 없음: index={index}")
+        # 무압축(YUY2) 협상 시 720p 가 5~10fps 로 제한되는 웹캠이 많다.
+        # MJPEG 을 명시 요청해 고해상도에서도 30fps 를 확보 (미지원 카메라는 무시됨).
+        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self._cap.set(cv2.CAP_PROP_FPS, fps)

@@ -75,6 +75,13 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentWidget(self.home)
 
     def _open_admin(self) -> None:
+        pin = str(load_app_config().get("adminPin", "4000"))
+        if pin:
+            from PySide6.QtWidgets import QDialog
+
+            from ui.pin_dialog import PinDialog
+            if PinDialog(pin, self).exec() != QDialog.DialogCode.Accepted:
+                return
         AdminDialog(self._camera_index, self).exec()
         self.home.refresh()
 

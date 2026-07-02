@@ -17,6 +17,7 @@ DEFAULT_APP_CONFIG: dict = {
     "holdSecondsOverride": None,
     "sound": True,
     "voice": True,
+    "adminPin": "4000",  # 관리자 진입 비밀번호 (빈 문자열이면 잠금 해제)
 }
 
 
