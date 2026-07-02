@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 import cv2
@@ -23,6 +25,37 @@ from core.refs import REF_VIS
 from core.session import SessionState, State
 from core.versus import VersusState, VState
 
+_EXAMPLES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "examples")
+_example_cache: dict[str, np.ndarray | None] = {}
+
+
+def example_image(pose_name: str) -> np.ndarray | None:
+    """config/examples/<pose>.{png,jpg,jpeg,webp} 동작 예시 이미지(없으면 None)."""
+    if pose_name in _example_cache:
+        return _example_cache[pose_name]
+    img = None
+    for ext in (".png", ".jpg", ".jpeg", ".webp"):
+        p = os.path.join(_EXAMPLES_DIR, pose_name + ext)
+        if os.path.isfile(p):
+            img = cv2.imread(p)
+            break
+    _example_cache[pose_name] = img
+    return img
+
+
+def _fit_image(frame: np.ndarray, img: np.ndarray, x: int, y: int, w: int, h: int) -> None:
+    if img is None:
+        return
+    if img.shape[2] == 4:
+        img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+    ih0, iw0 = img.shape[:2]
+    scale = min(w / iw0, h / ih0)
+    nw, nh = max(1, int(iw0 * scale)), max(1, int(ih0 * scale))
+    resized = cv2.resize(img, (nw, nh))
+    ox, oy = x + (w - nw) // 2, y + (h - nh) // 2
+    frame[oy:oy + nh, ox:ox + nw] = resized
+
 
 def _acc_colors(accuracy: float, pass_accuracy: float):
     """(cv2 BGR bar 색, PIL RGB 텍스트 색) 반환."""
@@ -33,26 +66,31 @@ def _acc_colors(accuracy: float, pass_accuracy: float):
     return (60, 80, 235), (255, 140, 140)
 
 
-def draw_guide_thumbnail(frame: np.ndarray, ref_norm: list[list[float]] | None) -> None:
-    """목표 자세 참조 스켈레톤을 우상단 썸네일 박스에 그린다(참조 있을 때만)."""
-    if not ref_norm:
-        return
+def draw_guide(frame: np.ndarray, pose_name: str,
+               ref_norm: list[list[float]] | None) -> None:
+    """목표 자세 예시를 화면 왼쪽 박스에 그린다.
+    우선순위: 예시 이미지(config/examples/) > 참조 스켈레톤(관리자 캡처) > 빈 박스."""
     h, w = frame.shape[:2]
-    bw = int(w * 0.2)
-    bh = int(bw * 1.25)
-    bx = w - bw - int(w * 0.02)
-    by = int(h * 0.14)
-    translucent_rect(frame, bx, by, bx + bw, by + bh, color=(30, 24, 12), alpha=0.65)
-    cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (255, 190, 90), 2)
-    pad = int(bw * 0.14)
-    ix, iy = bx + pad, by + int(bh * 0.14)
-    iw, ih = bw - pad * 2, bh - int(bh * 0.14) - pad
-    px = lambda nx: int(ix + nx * iw)  # noqa: E731
-    py = lambda ny: int(iy + ny * ih)  # noqa: E731
-    for a, b in SKELETON_EDGES:
-        if ref_norm[a][2] >= REF_VIS and ref_norm[b][2] >= REF_VIS:
-            cv2.line(frame, (px(ref_norm[a][0]), py(ref_norm[a][1])),
-                     (px(ref_norm[b][0]), py(ref_norm[b][1])), (127, 231, 160), 2, cv2.LINE_AA)
+    bw = int(w * 0.18)
+    bh = int(bw * 1.3)
+    bx = int(w * 0.02)
+    by = int(h * 0.30)
+    translucent_rect(frame, bx, by, bx + bw, by + bh, color=(20, 22, 34), alpha=0.7)
+    cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (120, 180, 255), 2)
+    pad = int(bw * 0.1)
+    ix, iy = bx + pad, by + int(bh * 0.16)
+    iw, ih = bw - pad * 2, bh - int(bh * 0.16) - pad
+
+    img = example_image(pose_name)
+    if img is not None:
+        _fit_image(frame, img, ix, iy, iw, ih)
+    elif ref_norm:
+        px = lambda nx: int(ix + nx * iw)  # noqa: E731
+        py = lambda ny: int(iy + ny * ih)  # noqa: E731
+        for a, b in SKELETON_EDGES:
+            if ref_norm[a][2] >= REF_VIS and ref_norm[b][2] >= REF_VIS:
+                cv2.line(frame, (px(ref_norm[a][0]), py(ref_norm[a][1])),
+                         (px(ref_norm[b][0]), py(ref_norm[b][1])), (127, 231, 160), 2, cv2.LINE_AA)
 
 
 def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
@@ -65,9 +103,13 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         draw_skeleton(frame, primary)
 
     if state.target_pose is not None and state.state in (State.COUNTDOWN, State.SCORING):
-        draw_guide_thumbnail(frame, ref_norm)
-        texts.append(TextItem("목표 자세", (int(w - w * 0.12), int(h * 0.155)),
-                              max(16, h // 40), (200, 220, 255), anchor="mm"))
+        draw_guide(frame, state.target_pose.name, ref_norm)
+        # 박스 상단 라벨 (좌측). 예시 이미지도 참조도 없으면 안내 문구
+        texts.append(TextItem("따라해 보세요", (int(w * 0.02 + w * 0.09), int(h * 0.335)),
+                              max(15, h // 42), (200, 220, 255), anchor="mm"))
+        if example_image(state.target_pose.name) is None and not ref_norm:
+            texts.append(TextItem("예시 준비 중", (int(w * 0.02 + w * 0.09), int(h * 0.62)),
+                                  max(13, h // 50), (150, 160, 180), anchor="mm"))
 
     # 상단 진행 바(자세 n/N + 자세명)
     if state.target_pose is not None:

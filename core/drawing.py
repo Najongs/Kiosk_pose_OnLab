@@ -17,9 +17,19 @@ from PIL import Image, ImageDraw, ImageFont
 from .pose_estimator import SKELETON_EDGES, PersonPose
 
 _FONT_CANDIDATES = [
+    # Windows (한글 기본: 맑은 고딕)
+    "C:/Windows/Fonts/malgunbd.ttf",
+    "C:/Windows/Fonts/malgun.ttf",
+    "C:/Windows/Fonts/gulim.ttc",
+    "C:/Windows/Fonts/batang.ttc",
+    # macOS
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    "/Library/Fonts/AppleGothic.ttf",
+    # Linux (Noto CJK / 나눔)
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
     "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
 ]
 
 

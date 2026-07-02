@@ -224,3 +224,6 @@ out/
 shots/
 web/shots/
 *.y4m
+
+# 런타임 로그
+error.log

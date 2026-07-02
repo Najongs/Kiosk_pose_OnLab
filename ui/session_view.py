@@ -58,6 +58,8 @@ class SessionView(QWidget):
         self._saved = False
         self._reset_cue()
         self._home_btn.hide()
+        self._label.setText("카메라·모델 준비 중…")
+        self._label.setStyleSheet("color:#eef2fb; font-size:30px; background:#05070d;")
         self._start_worker(source)
 
     def _start_worker(self, source: FrameSource) -> None:

@@ -58,6 +58,8 @@ class VersusView(QWidget):
         self._start = time.monotonic()
         self._prev = ""
         self._home.hide()
+        self._label.setText("카메라·모델 준비 중… (2인)")
+        self._label.setStyleSheet("color:#eef2fb; font-size:30px; background:#05070d;")
         self._thread = QThread(self)
         self._worker = FrameWorker(source, self._process)
         self._worker.moveToThread(self._thread)
