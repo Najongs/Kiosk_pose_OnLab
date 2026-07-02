@@ -106,12 +106,13 @@ class SessionView(QWidget):
             if eng is None:
                 # 모델 로딩 중 — 카메라 미리보기만 먼저 보여준다
                 return fit_frame(frame, self._view_size), None
+            now = time.monotonic() - start
             if flags["skip"]:
                 flags["skip"] = False
-                eng.session.skip(time.monotonic() - start)
-            state = eng.session.update(primary, time.monotonic() - start)
+                eng.session.skip(now)
+            state = eng.session.update(primary, now)
             ref = get_ref(state.target_pose.name) if state.target_pose else None
-            composed = compose(frame, primary, state, pass_acc, ref)
+            composed = compose(frame, primary, state, pass_acc, ref, anim_t=now)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)

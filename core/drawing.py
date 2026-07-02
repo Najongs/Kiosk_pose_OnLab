@@ -58,16 +58,65 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
 
 def draw_skeleton(frame: np.ndarray, pose: PersonPose, vis_thresh: float = 0.3,
                   color=(0, 235, 0), joint_color=(0, 160, 255)) -> None:
+    """어두운 외곽선 위에 본선을 얹어 어떤 배경에서도 또렷하게, 관절은
+    흰 코어 + 색 링으로 그린다."""
     kps = pose.keypoints
+    lines = []
     for a, b in SKELETON_EDGES:
         if kps[a, 2] >= vis_thresh and kps[b, 2] >= vis_thresh:
-            pa = (int(kps[a, 0]), int(kps[a, 1]))
-            pb = (int(kps[b, 0]), int(kps[b, 1]))
-            cv2.line(frame, pa, pb, color, 3, cv2.LINE_AA)
+            lines.append(((int(kps[a, 0]), int(kps[a, 1])),
+                          (int(kps[b, 0]), int(kps[b, 1]))))
+    for pa, pb in lines:  # 외곽선(그림자) 패스
+        cv2.line(frame, pa, pb, (18, 26, 18), 6, cv2.LINE_AA)
+    for pa, pb in lines:  # 본선
+        cv2.line(frame, pa, pb, color, 3, cv2.LINE_AA)
     for i in range(len(kps)):
         if kps[i, 2] >= vis_thresh:
-            cv2.circle(frame, (int(kps[i, 0]), int(kps[i, 1])), 4, joint_color, -1,
-                       cv2.LINE_AA)
+            p = (int(kps[i, 0]), int(kps[i, 1]))
+            cv2.circle(frame, p, 5, joint_color, 2, cv2.LINE_AA)   # 색 링
+            cv2.circle(frame, p, 2, (255, 255, 255), -1, cv2.LINE_AA)  # 흰 코어
+
+
+def _rounded_shape(canvas: np.ndarray, x1: int, y1: int, x2: int, y2: int,
+                   r: int, color, thickness: int) -> None:
+    """둥근 모서리 사각형 (filled: thickness=-1, 외곽선: >0)."""
+    r = max(0, min(r, (x2 - x1) // 2, (y2 - y1) // 2))
+    if r == 0:
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness, cv2.LINE_AA)
+        return
+    if thickness < 0:
+        cv2.rectangle(canvas, (x1 + r, y1), (x2 - r, y2), color, -1)
+        cv2.rectangle(canvas, (x1, y1 + r), (x2, y2 - r), color, -1)
+    else:
+        cv2.line(canvas, (x1 + r, y1), (x2 - r, y1), color, thickness, cv2.LINE_AA)
+        cv2.line(canvas, (x1 + r, y2), (x2 - r, y2), color, thickness, cv2.LINE_AA)
+        cv2.line(canvas, (x1, y1 + r), (x1, y2 - r), color, thickness, cv2.LINE_AA)
+        cv2.line(canvas, (x2, y1 + r), (x2, y2 - r), color, thickness, cv2.LINE_AA)
+    corners = [((x1 + r, y1 + r), 180), ((x2 - r, y1 + r), 270),
+               ((x2 - r, y2 - r), 0), ((x1 + r, y2 - r), 90)]
+    for (cx, cy), ang in corners:
+        cv2.ellipse(canvas, (cx, cy), (r, r), ang, 0, 90, color, thickness, cv2.LINE_AA)
+
+
+def panel(frame: np.ndarray, x1, y1, x2, y2, radius: int = 14,
+          color=(18, 20, 32), alpha: float = 0.62,
+          border=None, border_thickness: int = 2) -> None:
+    """반투명 둥근 패널 (+선택적 외곽선). HUD 의 기본 배경 요소."""
+    x1, y1 = max(0, int(x1)), max(0, int(y1))
+    x2 = min(frame.shape[1], int(x2))
+    y2 = min(frame.shape[0], int(y2))
+    if x2 <= x1 or y2 <= y1:
+        return
+    sub = frame[y1:y2, x1:x2]
+    h, w = sub.shape[:2]
+    mask = np.zeros((h, w), dtype=np.uint8)
+    _rounded_shape(mask, 0, 0, w - 1, h - 1, radius, 255, -1)
+    overlay = np.full_like(sub, color, dtype=np.uint8)
+    blended = cv2.addWeighted(overlay, alpha, sub, 1 - alpha, 0)
+    np.copyto(sub, blended, where=(mask[..., None] > 0))
+    if border is not None:
+        _rounded_shape(frame, x1, y1, x2 - 1, y2 - 1, radius, border,
+                       border_thickness)
 
 
 def translucent_rect(frame: np.ndarray, x1, y1, x2, y2, color=(20, 20, 20),
@@ -83,11 +132,19 @@ def translucent_rect(frame: np.ndarray, x1, y1, x2, y2, color=(20, 20, 20),
 
 
 def gauge_bar(frame: np.ndarray, x, y, w, h, ratio: float,
-              fg=(0, 210, 0), bg=(70, 70, 70)) -> None:
+              fg=(0, 210, 0), bg=(52, 56, 72), pass_ratio: float | None = None) -> None:
+    """알약(pill) 모양 게이지. pass_ratio 를 주면 합격선 눈금을 표시한다."""
+    x, y, w, h = int(x), int(y), int(w), int(h)
     ratio = max(0.0, min(1.0, ratio))
-    cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), bg, -1)
-    cv2.rectangle(frame, (int(x), int(y)), (int(x + w * ratio), int(y + h)), fg, -1)
-    cv2.rectangle(frame, (int(x), int(y)), (int(x + w), int(y + h)), (200, 200, 200), 1)
+    r = h // 2
+    _rounded_shape(frame, x, y, x + w, y + h, r, bg, -1)
+    fill = int(w * ratio)
+    if fill > 0:
+        _rounded_shape(frame, x, y, x + max(fill, min(h, w)), y + h, r, fg, -1)
+    if pass_ratio is not None and 0.0 < pass_ratio < 1.0:
+        px = x + int(w * pass_ratio)
+        cv2.line(frame, (px, y - 3), (px, y + h + 3), (235, 240, 250), 2, cv2.LINE_AA)
+    _rounded_shape(frame, x, y, x + w, y + h, r, (150, 158, 178), 1)
 
 
 @dataclass
