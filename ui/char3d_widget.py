@@ -24,7 +24,11 @@ def find_character_glb() -> str | None:
 def create_character_widget(parent=None):
     """CharacterWidget 생성 시도 — 실패하면 None (호출측 폴백)."""
     glb = find_character_glb()
-    if glb is None or not os.path.isfile(_QML):
+    if glb is None:
+        print(f"[3D 가이드] glb 없음: {_CHAR_DIR}")
+        return None
+    if not os.path.isfile(_QML):
+        print(f"[3D 가이드] QML 없음: {_QML}")
         return None
     try:
         from PySide6.QtCore import Qt, QUrl
@@ -38,11 +42,16 @@ def create_character_widget(parent=None):
         w.rootContext().setContextProperty(
             "characterUrl", QUrl.fromLocalFile(glb).toString())
         w.setSource(QUrl.fromLocalFile(_QML))
+        print(f"[3D 가이드] glb: {os.path.basename(glb)}, QML 상태: {w.status()}")
         if w.status() == QQuickWidget.Status.Error or w.rootObject() is None:
             for e in w.errors():
                 print("[3D 가이드] QML 오류:", e.toString())
             w.deleteLater()
             return None
+        # 로딩이 늦게 실패하는 경우도 콘솔에 남긴다
+        w.statusChanged.connect(lambda s: [
+            print("[3D 가이드] QML 오류:", e.toString()) for e in w.errors()
+        ] if s == QQuickWidget.Status.Error else None)
         w.hide()
         return w
     except Exception as e:

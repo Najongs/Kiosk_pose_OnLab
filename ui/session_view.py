@@ -94,11 +94,15 @@ class SessionView(QWidget):
         start = self._start
         show_fps = bool(app_config.get("showFps", False))
         guide_style = str(app_config.get("guideStyle", "image"))
+        print(f"[가이드] 스타일: {guide_style}")
         if guide_style == "mesh3d":
             if self._char3d is None:
                 from ui.char3d_widget import create_character_widget
                 self._char3d = create_character_widget(self)
             self._use_mesh3d = self._char3d is not None
+            print("[3D 가이드] 위젯 생성 성공 — 카운트다운/채점 중 표시됨"
+                  if self._use_mesh3d else
+                  "[3D 가이드] 위젯 생성 실패 → 절차적 캐릭터로 폴백")
             # 3D 위젯이 뜨면 합성 단계의 2D 가이드 박스는 생략
             guide_style = "none" if self._use_mesh3d else "character"
         else:
