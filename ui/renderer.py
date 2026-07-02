@@ -74,22 +74,37 @@ _char_sprites: list[np.ndarray] | None = None
 SPRITE_FPS = 12.0
 
 
+def _load_rgba_seq(pattern: str) -> list[np.ndarray]:
+    import glob as _glob
+    imgs = []
+    for p in sorted(_glob.glob(pattern)):
+        try:
+            data = np.fromfile(p, dtype=np.uint8)
+            im = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+        except OSError:
+            im = None
+        if im is not None and im.ndim == 3 and im.shape[2] == 4:
+            imgs.append(im)
+    return imgs
+
+
 def character_sprites() -> list[np.ndarray]:
     """RGBA 턴테이블 프레임 목록 (없으면 빈 리스트)."""
     global _char_sprites
     if _char_sprites is None:
-        import glob as _glob
-        imgs = []
-        for p in sorted(_glob.glob(os.path.join(_SPRITES_DIR, "turn_*.png"))):
-            try:
-                data = np.fromfile(p, dtype=np.uint8)
-                im = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
-            except OSError:
-                im = None
-            if im is not None and im.ndim == 3 and im.shape[2] == 4:
-                imgs.append(im)
-        _char_sprites = imgs
+        _char_sprites = _load_rgba_seq(os.path.join(_SPRITES_DIR, "turn_*.png"))
     return _char_sprites
+
+
+_pose_sprites_cache: dict[str, list[np.ndarray]] = {}
+
+
+def pose_sprites(pose_name: str) -> list[np.ndarray]:
+    """자세 시연 시퀀스 (sprites/<자세>/frame_*.png) — 캐릭터가 자세를 취함."""
+    if pose_name not in _pose_sprites_cache:
+        _pose_sprites_cache[pose_name] = _load_rgba_seq(
+            os.path.join(_SPRITES_DIR, pose_name, "frame_*.png"))
+    return _pose_sprites_cache[pose_name]
 
 
 def _fit_image_alpha(frame: np.ndarray, rgba: np.ndarray,
@@ -346,7 +361,14 @@ def draw_guide(frame: np.ndarray, pose_name: str,
     iw, ih = bw - pad * 2, bh - int(bh * 0.16) - pad
 
     if style == "mesh3d":
-        sprites = character_sprites()
+        seq = pose_sprites(pose_name)
+        if seq:
+            # 자세 시연: 서있기→자세→유지→복귀 사이클로 프레임 선택
+            t = _tween_progress(anim_t)
+            _fit_image_alpha(frame, seq[int(round(t * (len(seq) - 1)))],
+                             ix, iy, iw, ih)
+            return
+        sprites = character_sprites()  # 자세 시퀀스 없으면 턴테이블
         if sprites:
             idx = int((anim_t or 0) * SPRITE_FPS) % len(sprites)
             _fit_image_alpha(frame, sprites[idx], ix, iy, iw, ih)
