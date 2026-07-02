@@ -9,6 +9,7 @@ import { Session, SessionState } from "./session";
 import { Camera } from "./pipeline";
 import { drawFrame, updateHud, Hud } from "./renderer";
 import { pickPrimary } from "./poseEstimator";
+import { CharacterGuide } from "./character3d";
 import { drawGuideThumbnail } from "./guide";
 import { getRef } from "./refs";
 import * as audio from "./audio";
@@ -55,6 +56,10 @@ function escapeHtml(s: string): string {
 let camera: Camera | null = null;
 let running = false;
 let raf = 0;
+
+// 3D 캐릭터 가이드 (public/character.glb 있으면 활성 — 없으면 2D 썸네일)
+const charGuide = new CharacterGuide($<HTMLCanvasElement>("char3d"));
+void charGuide.load();
 
 async function startSession(poses?: string[]): Promise<void> {
   const status = $("homeStatus");
@@ -107,8 +112,11 @@ async function startSession(poses?: string[]): Promise<void> {
         const primary = pickPrimary(camera!.estimate(performance.now()));
         const state = session.update(primary, performance.now() / 1000);
         drawFrame(ctx, camera!.el, primary);
-        if (state.targetPose && (state.state === "countdown" || state.state === "scoring"))
-          drawGuideThumbnail(ctx, getRef(state.targetPose.name));
+        const guiding = !!state.targetPose &&
+          (state.state === "countdown" || state.state === "scoring");
+        charGuide.setVisible(guiding);  // 3D 캐릭터 있으면 오버레이로
+        if (guiding && !charGuide.ready)
+          drawGuideThumbnail(ctx, getRef(state.targetPose!.name));
         updateHud(hud, state, cfg.passAccuracy);
         cue(state);
 
@@ -134,6 +142,7 @@ async function startSession(poses?: string[]): Promise<void> {
 
 function endSession(): void {
   running = false;
+  charGuide.setVisible(false);
   cancelAnimationFrame(raf);
   audio.cancelSpeak();
   camera?.stopStream();
