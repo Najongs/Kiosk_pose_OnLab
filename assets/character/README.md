@@ -15,8 +15,10 @@
 |------|------|------|
 | .glb / .gltf | O | ✅ 권장 (three.js/QtQuick3D 표준) |
 | .vrm | O (표준 본) | ✅ 좋음 (glTF 기반, 리타게팅 최적) |
-| .fbx | O | △ 변환 필요 (Blender 에서 glb 로 export) |
-| .obj | X | ❌ 정적 메시 — 애니메이션 불가 |
+| .fbx | O | ✅ 그대로 올려도 됨 — 서버에서 FBX2glTF 로 변환해 드림 |
+| .blend | O | △ Blender 전용 — Blender 에서 File > Export > glTF 2.0(.glb) 로 한 번 내보내서 올려주세요 |
+| .ma / .mb (Maya) | O | △ Maya 전용 — Maya 에서 File > Export All > FBX 로 내보내서 올려주세요 |
+| .obj | X | ❌ 정적 메시 — 뼈대가 없어 애니메이션 불가 |
 
 ## 모델이 없다면
 - 사람 사진/모델을 https://www.mixamo.com 에 올리면 자동 리깅됩니다
