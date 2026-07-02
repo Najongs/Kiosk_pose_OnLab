@@ -145,6 +145,14 @@ class CameraSource(FrameSource):
         self._cap.set(cv2.CAP_PROP_FPS, fps)
         # 오래된 프레임이 쌓여 화면이 뒤처지지 않도록 버퍼 최소화
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # 실제 협상된 값 로그 — 요청과 다르면(15fps 등) 카메라/백엔드 한계 진단용
+        w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        f = self._cap.get(cv2.CAP_PROP_FPS)
+        fourcc = int(self._cap.get(cv2.CAP_PROP_FOURCC))
+        codec = "".join(chr((fourcc >> 8 * i) & 0xFF) for i in range(4)).strip("\x00")
+        print(f"[카메라] index={index} {w}x{h} @{f:.0f}fps codec={codec or '?'} "
+              f"(요청: {width}x{height} @{fps}fps MJPG)")
 
     def read(self) -> np.ndarray | None:
         ok, frame = self._cap.read()

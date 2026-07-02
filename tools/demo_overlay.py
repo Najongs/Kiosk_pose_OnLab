@@ -68,7 +68,8 @@ def main() -> int:
     src = open_source(args.input)
     is_image = isinstance(src, ImageSource)
 
-    estimator = MediaPipeEstimator(static_image_mode=is_image)
+    # 오프라인 일괄 처리 — 프레임 드롭 없는 동기(VIDEO) 모드 사용
+    estimator = MediaPipeEstimator(static_image_mode=is_image, async_infer=False)
     tracker = None if args.no_track else PrimarySubjectTracker()
 
     scorer = None

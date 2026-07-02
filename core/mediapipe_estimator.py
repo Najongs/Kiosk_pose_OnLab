@@ -46,7 +46,13 @@ class MediaPipeEstimator(PoseEstimator):
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
         static_image_mode: bool = False,
+        async_infer: bool = True,
     ):
+        """async_infer=True(기본): LIVE_STREAM 모드로 추론을 MediaPipe 내부
+        C++ 스레드에서 실행한다. detect_for_video 는 파이썬 GIL 을 잡은 채
+        계산해 다른 스레드(화면 표시)까지 멈추지만, detect_async 는 즉시
+        반환되고 우리는 이벤트 대기(GIL 해제)만 하므로 표시 루프가 카메라
+        fps 를 유지한다. 오프라인 도구(영상 일괄 처리)는 False 로."""
         model_path = model_path or _DEFAULT_MODEL
         if not os.path.isfile(model_path):
             raise FileNotFoundError(
@@ -55,22 +61,45 @@ class MediaPipeEstimator(PoseEstimator):
             )
 
         self._image_mode = static_image_mode
-        running_mode = (
-            vision.RunningMode.IMAGE if static_image_mode else vision.RunningMode.VIDEO
-        )
-        options = vision.PoseLandmarkerOptions(
-            base_options=mp_python.BaseOptions(model_asset_path=model_path),
-            running_mode=running_mode,
-            num_poses=num_poses,
-            min_pose_detection_confidence=min_detection_confidence,
-            min_pose_presence_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence,
-            output_segmentation_masks=False,
-        )
-        self._landmarker = vision.PoseLandmarker.create_from_options(options)
-        self._ts_ms = 0  # VIDEO 모드용 단조 증가 타임스탬프
+        self._async = bool(async_infer) and not static_image_mode
+        self._event = threading.Event()
+        self._raw_result = None
+
+        def make_options(mode, callback=None):
+            return vision.PoseLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=model_path),
+                running_mode=mode,
+                num_poses=num_poses,
+                min_pose_detection_confidence=min_detection_confidence,
+                min_pose_presence_confidence=min_detection_confidence,
+                min_tracking_confidence=min_tracking_confidence,
+                output_segmentation_masks=False,
+                **({"result_callback": callback} if callback else {}),
+            )
+
+        if static_image_mode:
+            self._landmarker = vision.PoseLandmarker.create_from_options(
+                make_options(vision.RunningMode.IMAGE))
+        elif self._async:
+            try:
+                self._landmarker = vision.PoseLandmarker.create_from_options(
+                    make_options(vision.RunningMode.LIVE_STREAM, self._on_result))
+            except Exception:
+                # 일부 버전에서 LIVE_STREAM 미지원 시 VIDEO 로 폴백
+                self._async = False
+                self._landmarker = vision.PoseLandmarker.create_from_options(
+                    make_options(vision.RunningMode.VIDEO))
+        else:
+            self._landmarker = vision.PoseLandmarker.create_from_options(
+                make_options(vision.RunningMode.VIDEO))
+        self._ts_ms = 0  # VIDEO/LIVE_STREAM 용 단조 증가 타임스탬프
         # 워밍 캐시(core.warm)로 공유될 수 있으므로 그래프 호출을 직렬화
         self._call_lock = threading.Lock()
+
+    def _on_result(self, result, output_image, timestamp_ms: int) -> None:
+        """MediaPipe 내부 스레드에서 호출 — 결과만 저장하고 대기자를 깨운다."""
+        self._raw_result = result
+        self._event.set()
 
     def estimate(self, frame_bgr: np.ndarray) -> list[PersonPose]:
         h, w = frame_bgr.shape[:2]
@@ -80,6 +109,14 @@ class MediaPipeEstimator(PoseEstimator):
         with self._call_lock:
             if self._image_mode:
                 result = self._landmarker.detect(mp_image)
+            elif self._async:
+                # 비동기 제출 후 결과 대기 — 대기 중 GIL 이 풀려 표시 루프가 돈다
+                self._ts_ms += 33
+                self._event.clear()
+                self._landmarker.detect_async(mp_image, self._ts_ms)
+                if not self._event.wait(timeout=2.0):
+                    return []  # 시간 초과(드묾) — 이 프레임은 건너뜀
+                result = self._raw_result
             else:
                 self._ts_ms += 33  # ~30fps 가정 (정확한 fps 없이도 단조 증가면 충분)
                 result = self._landmarker.detect_for_video(mp_image, self._ts_ms)
