@@ -1,0 +1,33 @@
+# OnLab — 키오스크 스트레칭/유연성 테스트 (데스크톱 앱, Python)
+# 설치:  pip install -r requirements.txt
+# 검증 환경: Python 3.12 / conda env "OnLab" (Python 3.10+ 권장)
+
+# --- 핵심 (포즈추정·영상·수치·한글렌더) ---
+mediapipe>=0.10.14           # PoseLandmarker (Tasks API). 모델 번들 필요(아래 주석)
+opencv-python-headless>=4.8  # 영상 I/O·그리기 (GUI 는 PySide6 담당하므로 headless 로 충분)
+numpy>=1.24,<2.0             # mediapipe 호환 위해 2.0 미만
+pillow>=10.0                 # 한글 텍스트 렌더링 (cv2.putText 는 한글 불가)
+
+# --- UI (데스크톱 앱: 홈/세션/관리자 + 효과음) ---
+PySide6>=6.6                 # QtMultimedia 포함(효과음)
+
+# =====================================================================
+# 코드 외 필수/선택 준비물 (pip 로 설치되지 않음)
+#
+# [필수] 포즈 모델 번들 (약 9.4MB, 최초 1회):
+#   models/pose_landmarker_full.task
+#   curl -L -o models/pose_landmarker_full.task \
+#     https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
+#
+# [필수] 한글 폰트 (HUD 텍스트): Noto Sans CJK KR 또는 나눔고딕
+#   Ubuntu:  sudo apt install fonts-noto-cjk
+#   (다른 폰트 쓰려면 환경변수 ONLAB_FONT 로 .ttf/.ttc 경로 지정)
+#
+# [선택] 음성 안내(TTS): 없으면 자동으로 무음
+#   Ubuntu:  sudo apt install espeak-ng
+#
+# [실행 시] 카메라(웹캠) 또는 테스트용 이미지/영상.
+#   카메라 없이:  python main.py --source testdata/ --windowed
+#
+# 웹앱(브라우저 버전)은 별도입니다 → web/ 폴더, Node 18+ 필요. web/README.md 참고.
+# =====================================================================

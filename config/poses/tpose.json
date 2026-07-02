@@ -1,0 +1,27 @@
+{
+  "name": "tpose",
+  "display_name": "T-포즈 (팔 벌리기)",
+  "description": "양팔을 어깨 높이로 수평 벌림. 어깨 외전 90도·팔꿈치 폄. 캘리브레이션 겸용.",
+  "prefer_world": true,
+  "hold_seconds": 3.0,
+  "metrics": [
+    {
+      "id": "shoulder_abduction",
+      "type": "angle",
+      "joints": ["hip", "shoulder", "elbow"],
+      "side": "both",
+      "target": 90,
+      "tolerance": 20,
+      "weight": 2.0
+    },
+    {
+      "id": "elbow_straight",
+      "type": "angle",
+      "joints": ["shoulder", "elbow", "wrist"],
+      "side": "both",
+      "target": 175,
+      "tolerance": 20,
+      "weight": 1.0
+    }
+  ]
+}

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>OnLab — 스트레칭/유연성 테스트</title>
+  </head>
+  <body>
+    <!-- ===== 홈 ===== -->
+    <section id="home" class="screen home">
+      <button id="adminOpen" class="gear" title="관리자">⚙</button>
+      <div class="home-inner">
+        <h1 class="brand">OnLab<span>유연성 테스트</span></h1>
+        <p class="tagline">카메라 앞에서 안내되는 자세를 따라 하고 점수를 겨뤄보세요.</p>
+        <div class="name-row">
+          <input id="nameInput" class="name-input" maxlength="12" placeholder="이름 입력 (선택)" />
+          <button id="startBtn" class="btn primary big">빠른 시작</button>
+          <button id="versusBtn" class="btn big versus-btn">⚔ 2인 대결</button>
+        </div>
+        <p id="homeStatus" class="status"></p>
+
+        <h2 class="section-title">코스 선택</h2>
+        <div id="courses" class="courses"></div>
+
+        <div class="leaderboard">
+          <h2>🏆 리더보드</h2>
+          <ol id="lbList" class="lb-list"></ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 세션 ===== -->
+    <section id="session" class="screen session hidden">
+      <div id="stage" class="stage">
+        <video id="video" playsinline muted></video>
+        <canvas id="canvas"></canvas>
+
+        <div id="topbar" class="topbar">
+          <span id="poseIndex" class="pose-index"></span>
+          <span id="poseName" class="pose-name"></span>
+        </div>
+        <div id="accWrap" class="acc-wrap">
+          <div id="accLabel" class="acc-label"></div>
+          <div class="bar-track"><div id="accBar" class="bar-fill acc"></div></div>
+        </div>
+        <div id="holdWrap" class="hold-wrap">
+          <span class="hold-label">유지</span>
+          <div class="bar-track"><div id="holdBar" class="bar-fill hold"></div></div>
+        </div>
+        <div id="center" class="center"></div>
+        <div id="message" class="message"></div>
+        <div id="summary" class="summary"></div>
+        <button id="homeBtn" class="btn ghost home-btn hidden">홈으로</button>
+        <button id="quitBtn" class="btn ghost quit-btn">✕</button>
+      </div>
+    </section>
+
+    <!-- ===== 관리자 ===== -->
+    <section id="admin" class="screen admin hidden">
+      <div class="admin-inner">
+        <div class="admin-head">
+          <h2>관리자 설정</h2>
+          <button id="adminClose" class="btn ghost">닫기</button>
+        </div>
+
+        <div class="admin-grid">
+          <label>합격 정확도 <b id="passVal"></b>%
+            <input id="passRange" type="range" min="50" max="100" step="1" />
+          </label>
+          <label>카운트다운(초)
+            <input id="countdownInput" type="number" min="0" max="10" step="1" />
+          </label>
+          <label>유지시간 오버라이드(초, 비우면 자세별 기본)
+            <input id="holdInput" type="number" min="0" max="15" step="0.5" />
+          </label>
+          <label class="chk"><input id="soundChk" type="checkbox" /> 효과음</label>
+          <label class="chk"><input id="voiceChk" type="checkbox" /> 음성 안내</label>
+        </div>
+
+        <h3>자세 세트 (체크한 순서대로 진행)</h3>
+        <div id="poseSetList" class="pose-set"></div>
+
+        <h3>목표 자세 참조 캡처</h3>
+        <p class="hint">카메라로 이상적인 자세를 잡고 캡처하면, 세션 중 우상단에 가이드로 표시됩니다.</p>
+        <div class="capture-row">
+          <select id="captureSel" class="sel"></select>
+          <button id="captureStart" class="btn">카메라 켜기</button>
+          <button id="captureShot" class="btn primary" disabled>캡처</button>
+          <button id="captureStop" class="btn ghost" disabled>끄기</button>
+        </div>
+        <div id="captureStage" class="capture-stage hidden">
+          <video id="capVideo" playsinline muted></video>
+          <canvas id="capCanvas"></canvas>
+        </div>
+
+        <div class="admin-foot">
+          <button id="clearLb" class="btn danger">리더보드 초기화</button>
+          <button id="resetCfg" class="btn danger">설정 초기화</button>
+          <span id="adminStatus" class="status"></span>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+{
+  "name": "side_bend",
+  "display_name": "측면 굽히기",
+  "description": "몸통을 옆으로 기울여 척추 측면 유연성을 측정. 위쪽 팔은 머리 위로 뻗음.",
+  "prefer_world": false,
+  "hold_seconds": 3.0,
+  "metrics": [
+    {
+      "id": "torso_lean",
+      "type": "lean",
+      "top": "shoulder_mid",
+      "bottom": "hip_mid",
+      "target": 30,
+      "tolerance": 18,
+      "weight": 2.0
+    },
+    {
+      "id": "reach_arm",
+      "type": "angle",
+      "joints": ["hip", "shoulder", "elbow"],
+      "side": "both",
+      "aggregate": "max",
+      "target": 160,
+      "tolerance": 30,
+      "weight": 1.0
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "camera": {
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "fps": 30
+  },
+  "pose_estimator": {
+    "backend": "mediapipe",
+    "model_complexity": 1,
+    "min_detection_confidence": 0.5,
+    "min_tracking_confidence": 0.5
+  },
+  "tracker": {
+    "center_weight": 0.3,
+    "min_iou_keep": 0.2,
+    "grace_frames": 15
+  },
+  "scoring": {
+    "pass_accuracy": 85.0,
+    "hold_seconds": 3.0,
+    "min_keypoint_confidence": 0.4
+  }
+}

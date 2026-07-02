@@ -1,0 +1,29 @@
+{
+  "name": "one_leg_balance",
+  "display_name": "한 발 들기 밸런스",
+  "description": "한 다리는 곧게 세우고 반대쪽 무릎을 접어 들어 균형·고관절 유연성을 측정.",
+  "prefer_world": true,
+  "hold_seconds": 4.0,
+  "metrics": [
+    {
+      "id": "standing_leg",
+      "type": "angle",
+      "joints": ["hip", "knee", "ankle"],
+      "side": "both",
+      "aggregate": "max",
+      "target": 175,
+      "tolerance": 20,
+      "weight": 1.0
+    },
+    {
+      "id": "lifted_knee",
+      "type": "angle",
+      "joints": ["hip", "knee", "ankle"],
+      "side": "both",
+      "aggregate": "min",
+      "target": 70,
+      "tolerance": 35,
+      "weight": 2.0
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "forward_bend",
+  "display_name": "앞으로 굽히기",
+  "description": "서서 상체를 앞으로 굽혀 햄스트링/허리 유연성을 측정. 다리는 편 상태 유지.",
+  "prefer_world": true,
+  "hold_seconds": 3.0,
+  "metrics": [
+    {
+      "id": "hip_flexion",
+      "type": "angle",
+      "joints": ["shoulder", "hip", "knee"],
+      "side": "both",
+      "target": 45,
+      "tolerance": 30,
+      "weight": 2.0
+    },
+    {
+      "id": "knee_straight",
+      "type": "angle",
+      "joints": ["hip", "knee", "ankle"],
+      "side": "both",
+      "target": 175,
+      "tolerance": 20,
+      "weight": 1.0
+    }
+  ]
+}

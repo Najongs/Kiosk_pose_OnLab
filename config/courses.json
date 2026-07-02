@@ -1,0 +1,37 @@
+[
+  {
+    "id": "basic",
+    "name": "기초 코스",
+    "difficulty": "초급",
+    "desc": "쉬운 자세로 몸풀기",
+    "poses": ["tpose", "overhead_reach"]
+  },
+  {
+    "id": "neck_shoulder",
+    "name": "목·어깨 집중",
+    "difficulty": "초급",
+    "desc": "상체 유연성 위주",
+    "poses": ["overhead_reach", "tpose", "side_bend"]
+  },
+  {
+    "id": "flex",
+    "name": "전신 유연성",
+    "difficulty": "중급",
+    "desc": "상·하체 골고루",
+    "poses": ["forward_bend", "side_bend", "overhead_reach", "tpose"]
+  },
+  {
+    "id": "lower",
+    "name": "하체·균형",
+    "difficulty": "고급",
+    "desc": "하체와 균형 도전",
+    "poses": ["forward_bend", "one_leg_balance"]
+  },
+  {
+    "id": "full",
+    "name": "종합 도전",
+    "difficulty": "고급",
+    "desc": "모든 자세 완주",
+    "poses": ["forward_bend", "side_bend", "overhead_reach", "tpose", "one_leg_balance"]
+  }
+]

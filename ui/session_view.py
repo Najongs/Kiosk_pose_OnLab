@@ -1,0 +1,147 @@
+"""세션 화면: 카메라 루프 + 스켈레톤/HUD/가이드 + 사운드 + 리더보드 기록."""
+
+from __future__ import annotations
+
+import datetime
+import time
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import QLabel, QPushButton, QWidget
+
+from core.engine import Engine
+from core.frame_source import FrameSource
+from core.leaderboard import add_record
+from core.refs import get_ref
+from core.session import SessionState, State
+from core.sound import Sound
+from ui.qtutil import bgr_to_qpixmap
+from ui.renderer import compose
+
+
+class SessionView(QWidget):
+    exitRequested = Signal()
+
+    def __init__(self):
+        super().__init__()
+        self.setStyleSheet("background:#05070d;")
+        self._label = QLabel(self)
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._home_btn = QPushButton("홈으로", self)
+        self._home_btn.clicked.connect(self._exit)
+        self._home_btn.hide()
+        self._quit_btn = QPushButton("✕", self)
+        self._quit_btn.clicked.connect(self._exit)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+
+        self._engine: Engine | None = None
+        self._source: FrameSource | None = None
+        self._sound: Sound | None = None
+        self._name = ""
+        self._start = 0.0
+        self._saved = False
+        self._pass = 85.0
+        self._reset_cue()
+
+    # ---- 생명주기 ----
+    def begin(self, name: str, app_config: dict, source: FrameSource) -> None:
+        self.stop()
+        self._name = name
+        self._engine = Engine(app_config["poseSet"], app_config=app_config)
+        self._pass = self._engine.pass_accuracy
+        self._sound = Sound(app_config.get("sound", True), app_config.get("voice", True))
+        self._source = source
+        self._start = time.monotonic()
+        self._saved = False
+        self._reset_cue()
+        self._home_btn.hide()
+        self._timer.start(33)
+
+    def stop(self) -> None:
+        self._timer.stop()
+        if self._source is not None:
+            self._source.release()
+            self._source = None
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
+
+    def _exit(self) -> None:
+        self.stop()
+        self.exitRequested.emit()
+
+    def _now(self) -> float:
+        return time.monotonic() - self._start
+
+    # ---- 루프 ----
+    def _tick(self) -> None:
+        if self._engine is None or self._source is None:
+            return
+        frame = self._source.read()
+        if frame is None:
+            if not self._source.is_open():
+                self._timer.stop()
+            return
+        primary, state = self._engine.process(frame, self._now())
+        ref = get_ref(state.target_pose.name) if state.target_pose else None
+        composed = compose(frame, primary, state, self._pass, ref)
+        self._label.setPixmap(
+            bgr_to_qpixmap(composed).scaled(
+                self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+        )
+        self._cue(state)
+        if state.state == State.DONE and not self._saved:
+            self._saved = True
+            add_record(self._name, state.final_summary or 0.0, state.results,
+                       datetime.datetime.now().isoformat())
+            self._home_btn.show()
+
+    # ---- 사운드/음성 큐 (상태 전이 1회성) ----
+    def _reset_cue(self) -> None:
+        self._prev_state = ""
+        self._prev_index = -1
+        self._prev_count = -1
+
+    def _cue(self, s: SessionState) -> None:
+        if self._sound is None:
+            return
+        entered = s.state.value != self._prev_state or s.pose_index != self._prev_index
+        if s.state == State.COUNTDOWN:
+            if entered and s.target_pose:
+                self._sound.speak(f"{s.target_pose.display_name} 준비")
+            import math
+            c = int(math.ceil(s.countdown_remaining or 0))
+            if c != self._prev_count and c > 0:
+                self._sound.tick()
+            self._prev_count = c
+        elif s.state == State.SCORING:
+            if entered:
+                self._sound.go()
+            self._prev_count = -1
+        elif s.state == State.RESULT:
+            if entered:
+                self._sound.success()
+                self._sound.speak(f"완료! {round(s.last_score or 0)}점")
+        elif s.state == State.DONE:
+            if entered:
+                self._sound.fanfare()
+                self._sound.speak(f"전체 완료! 평균 {round(s.final_summary or 0)}점")
+        self._prev_state = s.state.value
+        self._prev_index = s.pose_index
+
+    # ---- 레이아웃 ----
+    def resizeEvent(self, e) -> None:
+        self._label.setGeometry(0, 0, self.width(), self.height())
+        self._quit_btn.setFixedSize(56, 44)
+        self._quit_btn.move(self.width() - 72, 16)
+        self._home_btn.adjustSize()
+        self._home_btn.move((self.width() - self._home_btn.width()) // 2,
+                            int(self.height() * 0.9))
+        super().resizeEvent(e)
+
+    def render_once(self):
+        """헤드리스 검증용: 한 틱 처리."""
+        self._tick()

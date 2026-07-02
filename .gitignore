@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- OnLab (JS/web · 테스트 산출물 · 대용량 미디어) ---
+node_modules/
+web/dist/
+out/
+shots/
+web/shots/
+*.y4m

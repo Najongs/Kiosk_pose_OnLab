@@ -1,0 +1,27 @@
+{
+  "name": "overhead_reach",
+  "display_name": "만세 (오버헤드 리치)",
+  "description": "양팔을 머리 위로 곧게 뻗어 어깨 굴곡·팔꿈치 폄 가동범위를 측정.",
+  "prefer_world": true,
+  "hold_seconds": 3.0,
+  "metrics": [
+    {
+      "id": "shoulder_flexion",
+      "type": "angle",
+      "joints": ["hip", "shoulder", "elbow"],
+      "side": "both",
+      "target": 170,
+      "tolerance": 25,
+      "weight": 2.0
+    },
+    {
+      "id": "elbow_straight",
+      "type": "angle",
+      "joints": ["shoulder", "elbow", "wrist"],
+      "side": "both",
+      "target": 175,
+      "tolerance": 20,
+      "weight": 1.0
+    }
+  ]
+}
