@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import collections
 import time
 
 from PySide6.QtCore import Qt, QThread, Signal, Slot
@@ -17,7 +18,7 @@ from core.sound import Sound
 from core.versus import VersusSession, VState, assign_players
 from core.warm import get_estimator
 from ui.frame_worker import FrameWorker
-from ui.qtutil import bgr_to_qpixmap, fit_frame
+from ui.qtutil import bgr_to_qpixmap, draw_fps, fit_frame
 from ui.renderer import compose_versus
 
 
@@ -36,7 +37,8 @@ class VersusView(QWidget):
         self._home.hide()
 
         self._source = None  # 헤드리스 render_once 용
-        self._process_fn = None
+        self._infer_fn = None
+        self._render_fn = None
         self._vs: VersusSession | None = None  # 검증 도구 호환용 참조
         self._sound: Sound | None = None
         self._sound_key: tuple | None = None
@@ -64,10 +66,13 @@ class VersusView(QWidget):
         cfg = app_config
         pass_acc = self._pass
         start = self._start
+        show_fps = bool(app_config.get("showFps", False))
+        disp_ts: collections.deque = collections.deque(maxlen=40)
+        infer_ts: collections.deque = collections.deque(maxlen=20)
         holder: dict = {}
 
-        def process(frame):
-            """워커 스레드 전용: 자세 로드·2인 모델·대결 상태를 이 세션이 소유."""
+        def infer(frame):
+            """추론 스레드 전용(무거움): 자세 로드·2인 모델·포즈 추정."""
             ctx = holder.get("ctx")
             if ctx is None:
                 defs = [load_pose(n) for n in cfg["poseSet"]]
@@ -81,19 +86,33 @@ class VersusView(QWidget):
                 ctx = (est, vs)
                 holder["ctx"] = ctx
                 self._vs = vs
-            est, vs = ctx
-            now = time.monotonic() - start
+            est, _ = ctx
             poses = est.estimate(frame)
+            if show_fps:
+                infer_ts.append(time.monotonic())
+            return poses
+
+        def render(frame, poses):
+            """표시 루프(카메라 fps): 마지막 추론 결과로 상태 갱신 + 분할 HUD."""
+            ctx = holder.get("ctx")
+            if ctx is None:
+                return fit_frame(frame, self._view_size), None  # 모델 로딩 중 미리보기
+            _, vs = ctx
+            poses = poses or []
             a, b = assign_players(poses)
-            state = vs.update(poses, now)
+            state = vs.update(poses, time.monotonic() - start)
             composed = compose_versus(frame, a, b, state, pass_acc)
+            if show_fps:
+                disp_ts.append(time.monotonic())
+                draw_fps(composed, disp_ts, infer_ts)
             return fit_frame(composed, self._view_size), state
 
-        self._process_fn = process
+        self._infer_fn = infer
+        self._render_fn = render
         if not callable(source):
             self._source = source
         self._thread = QThread(self)
-        self._worker = FrameWorker(source, process)
+        self._worker = FrameWorker(source, infer, render)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.ready.connect(self._on_ready)
@@ -137,6 +156,8 @@ class VersusView(QWidget):
             pix = pix.scaled(self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
                              Qt.TransformationMode.FastTransformation)
         self._label.setPixmap(pix)
+        if state is None:  # 모델 로딩 중 미리보기 프레임
+            return
         self._cue(state)
         if state.state == VState.DONE:
             self._home.show()
@@ -167,10 +188,11 @@ class VersusView(QWidget):
         super().resizeEvent(e)
 
     def render_once(self) -> None:
-        if self._process_fn is None or self._source is None:
+        if self._infer_fn is None or self._source is None:
             return
         frame = self._source.read()
         if frame is None:
             return
-        composed, state = self._process_fn(frame)
+        poses = self._infer_fn(frame.copy())
+        composed, state = self._render_fn(frame, poses)
         self._on_ready(composed, state)

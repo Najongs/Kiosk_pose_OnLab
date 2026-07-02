@@ -57,6 +57,8 @@ class AdminDialog(QDialog):
         self.sound_chk.setChecked(cfg["sound"])
         self.voice_chk = QCheckBox("음성 안내 (espeak-ng 필요)")
         self.voice_chk.setChecked(cfg["voice"])
+        self.fps_chk = QCheckBox("FPS 표시 (진단용)")
+        self.fps_chk.setChecked(bool(cfg.get("showFps", False)))
 
         form.addRow("합격 정확도(%)", self.pass_spin)
         form.addRow("카운트다운(초)", self.count_spin)
@@ -67,6 +69,7 @@ class AdminDialog(QDialog):
         form.addRow(_wrap(hrow))
         form.addRow(self.sound_chk)
         form.addRow(self.voice_chk)
+        form.addRow(self.fps_chk)
         root.addLayout(form)
 
         root.addWidget(_h2("자세 세트 (체크한 순서대로 진행)"))
@@ -127,6 +130,7 @@ class AdminDialog(QDialog):
             "holdSecondsOverride": self.hold_spin.value() if self.hold_chk.isChecked() else None,
             "sound": self.sound_chk.isChecked(),
             "voice": self.voice_chk.isChecked(),
+            "showFps": self.fps_chk.isChecked(),
         })
         if pose_set:
             cfg["poseSet"] = pose_set

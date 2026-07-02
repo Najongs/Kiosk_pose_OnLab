@@ -31,6 +31,19 @@ def bgr_to_qpixmap(frame_bgr: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(img)
 
 
+def draw_fps(frame_bgr: np.ndarray, disp_ts, infer_ts) -> None:
+    """좌상단에 표시/추론 FPS 진단 오버레이 (ASCII — cv2 로 빠르게)."""
+    def rate(ts) -> float:
+        if len(ts) >= 2 and ts[-1] > ts[0]:
+            return (len(ts) - 1) / (ts[-1] - ts[0])
+        return 0.0
+    txt = f"{rate(disp_ts):4.1f} fps | infer {rate(infer_ts):4.1f}"
+    cv2.putText(frame_bgr, txt, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                (0, 0, 0), 3, cv2.LINE_AA)
+    cv2.putText(frame_bgr, txt, (10, 26), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                (140, 255, 170), 1, cv2.LINE_AA)
+
+
 def fit_frame(frame_bgr: np.ndarray, size: tuple[int, int] | None) -> np.ndarray:
     """뷰 크기에 맞게 비율 유지 리사이즈. 워커 스레드에서 호출해 UI 스레드의
     고비용 QPixmap.scaled(Smooth) 를 없앤다. size 가 아직 없으면 원본 그대로."""

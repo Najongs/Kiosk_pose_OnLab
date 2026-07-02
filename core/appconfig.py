@@ -18,6 +18,7 @@ DEFAULT_APP_CONFIG: dict = {
     "sound": True,
     "voice": True,
     "adminPin": "4000",  # 관리자 진입 비밀번호 (빈 문자열이면 잠금 해제)
+    "showFps": False,    # 좌상단 표시/추론 FPS 진단 오버레이
 }
 
 

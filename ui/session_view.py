@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import collections
 import datetime
 import time
 
@@ -22,7 +23,7 @@ from core.refs import get_ref
 from core.session import SessionState, State
 from core.sound import Sound
 from ui.frame_worker import FrameWorker
-from ui.qtutil import bgr_to_qpixmap, fit_frame
+from ui.qtutil import bgr_to_qpixmap, draw_fps, fit_frame
 from ui.renderer import compose
 
 
@@ -43,7 +44,8 @@ class SessionView(QWidget):
 
         self._engine: Engine | None = None  # 검증 도구 호환용 참조(워커가 생성)
         self._source = None                  # 헤드리스 render_once 용
-        self._process_fn = None
+        self._infer_fn = None
+        self._render_fn = None
         self._sound: Sound | None = None
         self._sound_key: tuple | None = None
         self._thread: QThread | None = None
@@ -76,28 +78,46 @@ class SessionView(QWidget):
         cfg = app_config
         pass_acc = self._pass
         start = self._start
+        show_fps = bool(app_config.get("showFps", False))
+        disp_ts: collections.deque = collections.deque(maxlen=40)
+        infer_ts: collections.deque = collections.deque(maxlen=20)
         holder: dict = {}
 
-        def process(frame):
-            """워커 스레드 전용. GUI 객체 생성 금지. 엔진은 이 세션(클로저)이 소유."""
+        def infer(frame):
+            """추론 스레드 전용(무거움): 모델 로드 + 포즈 추정 + 주 대상 추적."""
             eng = holder.get("engine")
             if eng is None:
                 eng = Engine(cfg["poseSet"], app_config=cfg, reuse_estimator=True)
                 holder["engine"] = eng
                 self._engine = eng
-            primary, state = eng.process(frame, time.monotonic() - start)
+            poses = eng.estimator.estimate(frame)
+            if show_fps:
+                infer_ts.append(time.monotonic())
+            return eng.tracker.update(poses)
+
+        def render(frame, primary):
+            """표시 루프(카메라 fps): 마지막 추론 결과로 상태 갱신 + 합성."""
+            eng = holder.get("engine")
+            if eng is None:
+                # 모델 로딩 중 — 카메라 미리보기만 먼저 보여준다
+                return fit_frame(frame, self._view_size), None
+            state = eng.session.update(primary, time.monotonic() - start)
             ref = get_ref(state.target_pose.name) if state.target_pose else None
             composed = compose(frame, primary, state, pass_acc, ref)
+            if show_fps:
+                disp_ts.append(time.monotonic())
+                draw_fps(composed, disp_ts, infer_ts)
             return fit_frame(composed, self._view_size), state
 
-        self._process_fn = process
+        self._infer_fn = infer
+        self._render_fn = render
         if not callable(source):
             self._source = source
-        self._start_worker(source, process)
+        self._start_worker(source, infer, render)
 
-    def _start_worker(self, source, process_fn) -> None:
+    def _start_worker(self, source, infer_fn, render_fn) -> None:
         self._thread = QThread(self)
-        self._worker = FrameWorker(source, process_fn)
+        self._worker = FrameWorker(source, infer_fn, render_fn)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.ready.connect(self._on_ready)   # 메인 스레드(큐)
@@ -138,12 +158,14 @@ class SessionView(QWidget):
 
     # ---- 결과 수신(메인 스레드): 표시 + 사운드 + 기록 ----
     @Slot(object, object)
-    def _on_ready(self, composed, state: SessionState) -> None:
+    def _on_ready(self, composed, state: SessionState | None) -> None:
         pix = bgr_to_qpixmap(composed)
         if pix.width() > self._label.width() or pix.height() > self._label.height():
             pix = pix.scaled(self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
                              Qt.TransformationMode.FastTransformation)
         self._label.setPixmap(pix)
+        if state is None:  # 모델 로딩 중 미리보기 프레임
+            return
         self._cue(state)
         if state.state == State.DONE and not self._saved:
             self._saved = True
@@ -201,11 +223,12 @@ class SessionView(QWidget):
         super().resizeEvent(e)
 
     def render_once(self):
-        """헤드리스 검증용: 워커 없이 한 프레임 동기 처리."""
-        if self._process_fn is None or self._source is None:
+        """헤드리스 검증용: 워커 없이 한 프레임 동기 처리(추론+합성)."""
+        if self._infer_fn is None or self._source is None:
             return
         frame = self._source.read()
         if frame is None:
             return
-        composed, state = self._process_fn(frame)
+        primary = self._infer_fn(frame.copy())
+        composed, state = self._render_fn(frame, primary)
         self._on_ready(composed, state)
