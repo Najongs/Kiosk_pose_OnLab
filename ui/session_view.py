@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 import time
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 
 from core.engine import Engine
@@ -14,6 +14,7 @@ from core.leaderboard import add_record
 from core.refs import get_ref
 from core.session import SessionState, State
 from core.sound import Sound
+from ui.frame_worker import FrameWorker
 from ui.qtutil import bgr_to_qpixmap
 from ui.renderer import compose
 
@@ -33,12 +34,11 @@ class SessionView(QWidget):
         self._quit_btn = QPushButton("✕", self)
         self._quit_btn.clicked.connect(self._exit)
 
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._tick)
-
         self._engine: Engine | None = None
         self._source: FrameSource | None = None
         self._sound: Sound | None = None
+        self._thread: QThread | None = None
+        self._worker: FrameWorker | None = None
         self._name = ""
         self._start = 0.0
         self._saved = False
@@ -49,18 +49,44 @@ class SessionView(QWidget):
     def begin(self, name: str, app_config: dict, source: FrameSource) -> None:
         self.stop()
         self._name = name
-        self._engine = Engine(app_config["poseSet"], app_config=app_config)
-        self._pass = self._engine.pass_accuracy
+        self._app_config = app_config
+        self._engine = None  # 무거운 모델 로드는 워커 스레드에서 지연 생성
+        self._pass = float(app_config.get("passAccuracy", 85.0))
         self._sound = Sound(app_config.get("sound", True), app_config.get("voice", True))
         self._source = source
         self._start = time.monotonic()
         self._saved = False
         self._reset_cue()
         self._home_btn.hide()
-        self._timer.start(33)
+        self._start_worker(source)
+
+    def _start_worker(self, source: FrameSource) -> None:
+        self._thread = QThread(self)
+        self._worker = FrameWorker(source, self._process)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.ready.connect(self._on_ready)   # 메인 스레드(큐)
+        self._worker.stopped.connect(self._thread.quit)
+        self._thread.start()
+
+    def _process(self, frame):
+        """워커 스레드에서 실행: 추론+합성(무거운 작업). GUI 객체 생성 금지.
+        MediaPipe 엔진은 여기서(워커 스레드) 지연 생성 → 생성+사용 스레드 일치."""
+        if self._engine is None:
+            self._engine = Engine(self._app_config["poseSet"], app_config=self._app_config)
+        primary, state = self._engine.process(frame, self._now())
+        ref = get_ref(state.target_pose.name) if state.target_pose else None
+        composed = compose(frame, primary, state, self._pass, ref)
+        return composed, state
 
     def stop(self) -> None:
-        self._timer.stop()
+        if self._worker is not None:
+            self._worker.stop()
+        if self._thread is not None:
+            self._thread.quit()
+            self._thread.wait(2000)
+            self._thread = None
+            self._worker = None
         if self._source is not None:
             self._source.release()
             self._source = None
@@ -75,35 +101,19 @@ class SessionView(QWidget):
     def _now(self) -> float:
         return time.monotonic() - self._start
 
-    # ---- 루프 ----
-    def _tick(self) -> None:
-        if self._engine is None or self._source is None:
-            return
-        try:
-            frame = self._source.read()
-            if frame is None:
-                if not self._source.is_open():
-                    self._timer.stop()
-                return
-            primary, state = self._engine.process(frame, self._now())
-            ref = get_ref(state.target_pose.name) if state.target_pose else None
-            composed = compose(frame, primary, state, self._pass, ref)
-            self._label.setPixmap(
-                bgr_to_qpixmap(composed).scaled(
-                    self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation)
-            )
-            self._cue(state)
-            if state.state == State.DONE and not self._saved:
-                self._saved = True
-                add_record(self._name, state.final_summary or 0.0, state.results,
-                           datetime.datetime.now().isoformat())
-                self._home_btn.show()
-        except Exception:
-            # 한 프레임 오류로 앱이 죽지 않도록: 루프 중단하고 로그만
-            import traceback
-            traceback.print_exc()
-            self._timer.stop()
+    # ---- 결과 수신(메인 스레드): 표시 + 사운드 + 기록 ----
+    @Slot(object, object)
+    def _on_ready(self, composed, state: SessionState) -> None:
+        self._label.setPixmap(
+            bgr_to_qpixmap(composed).scaled(
+                self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)
+        )
+        self._cue(state)
+        if state.state == State.DONE and not self._saved:
+            self._saved = True
+            add_record(self._name, state.final_summary or 0.0, state.results,
+                       datetime.datetime.now().isoformat())
             self._home_btn.show()
 
     # ---- 사운드/음성 큐 (상태 전이 1회성) ----
@@ -150,5 +160,11 @@ class SessionView(QWidget):
         super().resizeEvent(e)
 
     def render_once(self):
-        """헤드리스 검증용: 한 틱 처리."""
-        self._tick()
+        """헤드리스 검증용: 워커 없이 한 프레임 동기 처리."""
+        if self._engine is None or self._source is None:
+            return
+        frame = self._source.read()
+        if frame is None:
+            return
+        composed, state = self._process(frame)
+        self._on_ready(composed, state)

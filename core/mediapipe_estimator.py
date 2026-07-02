@@ -23,10 +23,18 @@ from mediapipe.tasks.python import vision
 
 from .pose_estimator import NUM_KEYPOINTS, PersonPose, PoseEstimator
 
-_DEFAULT_MODEL = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "models", "pose_landmarker_full.task",
-)
+_MODELS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
+
+
+def _default_model() -> str:
+    """CPU 성능을 위해 경량(lite) 모델 우선, 없으면 full."""
+    lite = os.path.join(_MODELS_DIR, "pose_landmarker_lite.task")
+    full = os.path.join(_MODELS_DIR, "pose_landmarker_full.task")
+    return lite if os.path.isfile(lite) else full
+
+
+_DEFAULT_MODEL = _default_model()
 
 
 class MediaPipeEstimator(PoseEstimator):
