@@ -13,9 +13,7 @@ from core.appconfig import load_app_config, reset_app_config, save_app_config
 from core.courses import load_courses, new_course_id, save_courses
 from core.leaderboard import clear as clear_leaderboard
 from core.pose_def import list_poses, load_pose
-from core.refs import (
-    clear_ref, has_ref, normalize_pose, pose_to_ref3d, set_ref, set_ref3d,
-)
+from core.refs import normalize_pose, pose_to_ref3d, set_ref, set_ref3d
 
 
 class AdminDialog(QDialog):
@@ -85,25 +83,7 @@ class AdminDialog(QDialog):
         form.addRow(self.fps_chk)
         root.addLayout(form)
 
-        root.addWidget(_h2("자세 세트 (체크한 순서대로 진행)"))
-        self.pose_checks: list[QCheckBox] = []
         self._defs = [load_pose(n) for n in list_poses()]
-        set_names = cfg["poseSet"]
-        ordered = [d for n in set_names for d in self._defs if d.name == n]
-        ordered += [d for d in self._defs if d.name not in set_names]
-        for d in ordered:
-            row = QHBoxLayout()
-            chk = QCheckBox(d.display_name)
-            chk.setChecked(d.name in set_names)
-            chk.setProperty("pose", d.name)
-            self.pose_checks.append(chk)
-            tag = QLabel("가이드 있음" if has_ref(d.name) else "가이드 없음")
-            tag.setStyleSheet(
-                "color:#2ee6a6;" if has_ref(d.name) else "color:#9aa4bd;")
-            row.addWidget(chk)
-            row.addStretch()
-            row.addWidget(tag)
-            root.addWidget(_wrap(row))
 
         root.addWidget(_h2("코스 관리"))
         self.course_list = QListWidget()
@@ -158,7 +138,6 @@ class AdminDialog(QDialog):
 
     def _collect(self) -> dict:
         cfg = load_app_config()
-        pose_set = [c.property("pose") for c in self.pose_checks if c.isChecked()]
         cfg.update({
             "passAccuracy": self.pass_spin.value(),
             "countdownSeconds": self.count_spin.value(),
@@ -170,8 +149,6 @@ class AdminDialog(QDialog):
             "showFps": self.fps_chk.isChecked(),
             "guideStyle": self.guide_sel.currentData(),
         })
-        if pose_set:
-            cfg["poseSet"] = pose_set
         return cfg
 
     def _save_close(self) -> None:
