@@ -24,6 +24,18 @@ DEFAULT_APP_CONFIG: dict = {
     # 따라해 보세요 박스: "image"(사진) | "character"(절차적 캐릭터)
     #                    | "mesh3d"(리깅 glb 캐릭터, QtQuick3D)
     "guideStyle": "image",
+    # --- 미니게임 ---
+    "reactionRounds": 5,        # 반응속도: 라운드 수
+    "reactionMinDelay": 1.5,    # 반응속도: 신호까지 최소 대기(초)
+    "reactionMaxDelay": 4.0,    # 반응속도: 신호까지 최대 대기(초)
+    "jumpAttempts": 3,          # 높이뛰기: 시도 횟수
+    "jumpTargetCm": 30.0,       # 높이뛰기: 목표선 높이(cm, 근사)
+    "jumpCalibSeconds": 2.0,    # 높이뛰기: 기준선 측정 시간(초)
+    "pushupMode": "timed",      # 팔굽혀펴기: "timed"(제한시간) | "target"(목표 개수)
+    "pushupSeconds": 30.0,      # 팔굽혀펴기: 제한시간(초)
+    "pushupTargetReps": 15,     # 팔굽혀펴기: 목표 개수
+    "pushupUpAngle": 150.0,     # 팔굽혀펴기: 팔 폄 판정 각도
+    "pushupDownAngle": 95.0,    # 팔굽혀펴기: 팔 굽힘 판정 각도
 }
 
 

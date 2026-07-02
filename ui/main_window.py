@@ -1,4 +1,4 @@
-"""메인 창: 홈 ↔ 세션 (QStackedWidget) + 관리자 다이얼로그."""
+"""메인 창: 홈 ↔ 게임 뷰(레지스트리 기반, 지연 생성) + 관리자 다이얼로그."""
 
 from __future__ import annotations
 
@@ -6,42 +6,35 @@ from collections.abc import Callable
 
 from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QWidget
 
 from core.appconfig import load_app_config
 from core.bgm import Bgm
 from core.frame_source import FrameSource
 from ui.admin_dialog import AdminDialog
 from ui.attract import AttractOverlay
+from ui.game_registry import GAMES
 from ui.home import HomeWidget
 from ui.qtutil import DARK_QSS
-from ui.session_view import SessionView
-from ui.versus_view import VersusView
 
 
 class MainWindow(QMainWindow):
     def __init__(self, source_factory: Callable[[], FrameSource],
                  camera_index: int = 0, fullscreen: bool = True):
         super().__init__()
-        self.setWindowTitle("OnLab — 스트레칭/유연성 테스트")
+        self.setWindowTitle("OnLab — AI 체험 게임")
         self.setStyleSheet(DARK_QSS)
         self._source_factory = source_factory
         self._camera_index = camera_index
 
         self._stack = QStackedWidget()
-        self.home = HomeWidget()
-        self.session = SessionView()
-        self.versus = VersusView()
+        self.home = HomeWidget()  # 어트랙트 모드가 currentWidget() is home 을 검사
         self._stack.addWidget(self.home)
-        self._stack.addWidget(self.session)
-        self._stack.addWidget(self.versus)
+        self._views: dict[str, QWidget] = {}  # game_id → 뷰 (선택 시 지연 생성)
         self.setCentralWidget(self._stack)
 
-        self.home.startRequested.connect(self._start_session)
-        self.home.versusRequested.connect(self._start_versus)
+        self.home.gameSelected.connect(self._start_game)
         self.home.adminRequested.connect(self._open_admin)
-        self.session.exitRequested.connect(self._go_home)
-        self.versus.exitRequested.connect(self._go_home)
 
         self._bgm = Bgm()
         self._apply_bgm()
@@ -101,29 +94,26 @@ class MainWindow(QMainWindow):
         else:
             self._bgm.stop()
 
-    def _start_session(self, name: str, poses: list | None = None) -> None:
-        cfg = load_app_config()
-        if poses:
-            cfg = dict(cfg)
-            cfg["poseSet"] = list(poses)
+    def _start_game(self, game_id: str, params: dict) -> None:
+        gdef = GAMES.get(game_id)
+        if gdef is None:
+            self.home.set_status(f"알 수 없는 게임: {game_id}")
+            return
         self.home.set_status("")
         try:
-            # 카메라 열기/모델 로드는 세션 뷰의 워커 스레드에서 수행(클릭 즉시 전환)
-            self.session.begin(name, cfg, self._source_factory)
+            # 뷰 지연 생성(import 포함)도 실패할 수 있으므로 가드 안에서.
+            # 카메라 열기/모델 로드는 뷰의 워커 스레드에서 수행(클릭 즉시 전환)
+            view = self._views.get(game_id)
+            if view is None:
+                view = gdef.make_view()
+                view.exitRequested.connect(self._go_home)
+                self._stack.addWidget(view)
+                self._views[game_id] = view
+            gdef.start(view, params, load_app_config(), self._source_factory)
         except Exception as e:
             self.home.set_status(f"시작 실패: {e}")
             return
-        self._stack.setCurrentWidget(self.session)
-
-    def _start_versus(self) -> None:
-        cfg = load_app_config()
-        self.home.set_status("")
-        try:
-            self.versus.begin(cfg, self._source_factory)
-        except Exception as e:
-            self.home.set_status(f"시작 실패: {e}")
-            return
-        self._stack.setCurrentWidget(self.versus)
+        self._stack.setCurrentWidget(view)
 
     def _go_home(self) -> None:
         self.home.refresh()
@@ -143,21 +133,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e) -> None:
         self._bgm.stop()
-        self.session.stop()
-        self.versus.stop()
+        for view in self._views.values():
+            view.stop()
         from core.warm import close_all
         close_all()
         super().closeEvent(e)
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
-        # Esc: 세션/대결 중이면 홈으로, 홈에서는 종료. (일반 글자키 Q 로는 종료 안 함)
+        # Esc: 게임 중이면 홈으로, 홈에서는 종료. (일반 글자키 Q 로는 종료 안 함)
         if e.key() == Qt.Key.Key_Escape:
             cur = self._stack.currentWidget()
-            if cur is self.session:
-                self.session._exit()
-            elif cur is self.versus:
-                self.versus._exit()
-            else:
+            if cur is self.home:
                 self.close()
+            else:
+                cur._exit()  # 모든 게임 뷰가 제공 (stop + exitRequested)
         elif e.key() in (Qt.Key.Key_F, Qt.Key.Key_F11):
             self.showNormal() if self.isFullScreen() else self.showFullScreen()

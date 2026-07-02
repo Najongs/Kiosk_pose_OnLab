@@ -1,27 +1,32 @@
-"""홈 화면: 좌측 브랜딩·시작, 우측 코스 카드 + 리더보드 (키오스크 와이드 레이아웃)."""
+"""홈 화면: 좌측 브랜딩·시작, 우측 게임 선택 카드 + 리더보드.
+
+우측 패널은 2페이지: [게임 선택] ↔ [코스 선택](스트레칭 전용 하위 페이지).
+게임 시작은 gameSelected(game_id, params) 하나로 MainWindow 에 전달된다.
+"""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QListWidgetItem, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout,
+    QWidget,
 )
 
 from core.courses import load_courses
 from core.leaderboard import top_n
+from ui.game_registry import BOARD_TABS, REGISTRY
 
 _DIFF_COLOR = {"초급": "#2ee6a6", "중급": "#ffdc40", "고급": "#ff5a6a"}
 
 
-class _CourseCard(QFrame):
-    """난이도 색 스트라이프 + 이름/설명/자세 수를 담은 클릭형 카드."""
+class _Card(QFrame):
+    """색 스트라이프 + 제목/설명을 담은 클릭형 카드 (게임/코스 공용 베이스)."""
 
     clicked = Signal()
 
-    def __init__(self, c: dict):
+    def __init__(self, accent: str):
         super().__init__()
-        color = _DIFF_COLOR.get(c.get("difficulty", ""), "#9aa4bd")
         self.setObjectName("card")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(110)
@@ -29,16 +34,55 @@ class _CourseCard(QFrame):
             QFrame#card {{
                 background: rgba(255,255,255,0.045);
                 border: 1px solid rgba(255,255,255,0.09);
-                border-left: 5px solid {color};
+                border-left: 5px solid {accent};
                 border-radius: 16px;
             }}
             QFrame#card:hover {{
                 background: rgba(74,168,255,0.10);
                 border: 1px solid rgba(74,168,255,0.45);
-                border-left: 5px solid {color};
+                border-left: 5px solid {accent};
             }}
             QLabel {{ background: transparent; border: none; }}
         """)
+
+    def mouseReleaseEvent(self, e) -> None:
+        if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(
+                e.position().toPoint()):
+            self.clicked.emit()
+        super().mouseReleaseEvent(e)
+
+
+class _GameCard(_Card):
+    """게임 선택 카드: 이모지 + 제목 + 설명."""
+
+    def __init__(self, title: str, subtitle: str, emoji: str, accent: str):
+        super().__init__(accent)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(18, 14, 16, 14)
+        h.setSpacing(14)
+        icon = QLabel(emoji)
+        icon.setStyleSheet("font-size:42px;")
+        icon.setFixedWidth(60)
+        h.addWidget(icon)
+        v = QVBoxLayout()
+        v.setSpacing(6)
+        name = QLabel(title)
+        name.setStyleSheet("font-size:22px; font-weight:800; color:#eef2fb;")
+        desc = QLabel(subtitle)
+        desc.setStyleSheet("color:#9aa4bd; font-size:15px;")
+        desc.setWordWrap(True)
+        v.addWidget(name)
+        v.addWidget(desc)
+        h.addLayout(v)
+        h.addStretch()
+
+
+class _CourseCard(_Card):
+    """난이도 색 스트라이프 + 이름/설명/자세 수를 담은 클릭형 카드."""
+
+    def __init__(self, c: dict):
+        super().__init__(_DIFF_COLOR.get(c.get("difficulty", ""), "#9aa4bd"))
+        color = _DIFF_COLOR.get(c.get("difficulty", ""), "#9aa4bd")
         v = QVBoxLayout(self)
         v.setContentsMargins(18, 14, 16, 14)
         v.setSpacing(6)
@@ -67,23 +111,17 @@ class _CourseCard(QFrame):
         meta.setStyleSheet("color:#6f7890; font-size:14px; font-weight:600;")
         v.addWidget(meta)
 
-    def mouseReleaseEvent(self, e) -> None:
-        if e.button() == Qt.MouseButton.LeftButton and self.rect().contains(
-                e.position().toPoint()):
-            self.clicked.emit()
-        super().mouseReleaseEvent(e)
-
 
 class HomeWidget(QWidget):
-    # name, poses(빈 리스트면 기본 세트)
-    startRequested = Signal(str, list)
-    versusRequested = Signal()
+    # (game_id, params) — params: {"name": str, "poses": list(스트레칭 전용)}
+    gameSelected = Signal(str, dict)
     adminRequested = Signal()
 
     def __init__(self):
         super().__init__()
         self.setObjectName("screen")  # DARK_QSS 의 그라데이션 배경 적용
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._lb_game = "stretch"  # 리더보드 탭 선택 상태
         root = QHBoxLayout(self)
         root.setContentsMargins(56, 40, 56, 44)
         root.setSpacing(44)
@@ -106,9 +144,9 @@ class HomeWidget(QWidget):
         title = QLabel("OnLab")
         title.setStyleSheet("font-size:92px; font-weight:900; color:#2ee6a6;"
                             "letter-spacing:2px;")
-        sub = QLabel("유연성 테스트")
+        sub = QLabel("AI 체험 게임")
         sub.setStyleSheet("font-size:34px; font-weight:800; color:#eef2fb;")
-        tag = QLabel("카메라 앞에서 안내되는 자세를 따라 하고\n점수를 겨뤄보세요.")
+        tag = QLabel("카메라가 몸의 움직임을 인식해요.\n게임을 고르고 점수를 겨뤄보세요.")
         tag.setStyleSheet("color:#9aa4bd; font-size:18px; line-height:150%;")
         left.addWidget(title)
         left.addWidget(sub)
@@ -125,19 +163,10 @@ class HomeWidget(QWidget):
         start = QPushButton("빠른 시작  ▶")
         start.setObjectName("primary")
         start.setFixedWidth(340)
+        start.setToolTip("기본 스트레칭 코스로 바로 시작")
         start.clicked.connect(self._start)
-        versus = QPushButton("⚔  2인 대결")
-        versus.setFixedWidth(340)
-        versus.setStyleSheet(
-            "QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #ff6ec4, stop:1 #7a5cff); color:#fff; font-weight:800;"
-            "  font-size:20px; border:none; border-radius:18px; padding:14px; }"
-            "QPushButton:hover { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "  stop:0 #ff85cf, stop:1 #8f74ff); }")
-        versus.clicked.connect(self.versusRequested.emit)
         left.addSpacing(4)
         left.addWidget(start)
-        left.addWidget(versus)
 
         self.status = QLabel("")
         self.status.setStyleSheet("color:#ffd27f; font-size:16px;")
@@ -154,40 +183,52 @@ class HomeWidget(QWidget):
         lw.setFixedWidth(420)
         root.addWidget(lw)
 
-        # ---- 우: 코스 + 리더보드 ----
+        # ---- 우: 게임/코스 선택 (2페이지) + 리더보드 ----
         right = QVBoxLayout()
         right.setSpacing(12)
 
         header = QHBoxLayout()
-        ct = QLabel("코스 선택")
-        ct.setStyleSheet("font-size:26px; font-weight:800;")
+        self._panel_title = QLabel("게임 선택")
+        self._panel_title.setStyleSheet("font-size:26px; font-weight:800;")
+        self._back_btn = QPushButton("← 게임 선택")
+        self._back_btn.setStyleSheet("font-size:16px; padding:8px 14px;")
+        self._back_btn.clicked.connect(self._show_games)
+        self._back_btn.hide()
         gear = QPushButton("⚙")
         gear.setFixedSize(52, 52)
         gear.setStyleSheet("border-radius:26px; font-size:22px; padding:0;")
         gear.setToolTip("관리자 설정")
         gear.clicked.connect(self.adminRequested.emit)
-        header.addWidget(ct)
+        header.addWidget(self._panel_title)
         header.addStretch()
+        header.addWidget(self._back_btn)
         header.addWidget(gear)
         right.addLayout(header)
 
-        grid_host = QWidget()
-        grid = QGridLayout(grid_host)
-        grid.setContentsMargins(0, 0, 6, 0)
-        grid.setSpacing(14)
-        for i, c in enumerate(load_courses()):
-            card = _CourseCard(c)
-            card.clicked.connect(lambda c=c: self._start_course(c))
-            grid.addWidget(card, i // 2, i % 2)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setWidget(grid_host)
-        right.addWidget(scroll, 5)
+        self._pages = QStackedWidget()
+        self._pages.addWidget(self._build_game_page())    # 0: 게임 카드
+        self._pages.addWidget(self._build_course_page())  # 1: 코스 카드
+        right.addWidget(self._pages, 5)
 
+        lb_head = QHBoxLayout()
         lb_title = QLabel("🏆 리더보드")
         lb_title.setStyleSheet("font-size:24px; font-weight:800; margin-top:6px;")
-        right.addWidget(lb_title)
+        lb_head.addWidget(lb_title)
+        lb_head.addSpacing(10)
+        self._lb_tabs: dict[str, QPushButton] = {}
+        for gid, label in BOARD_TABS:
+            b = QPushButton(label)
+            b.setCheckable(True)
+            b.setStyleSheet(
+                "QPushButton { font-size:14px; padding:5px 12px; border-radius:12px; }"
+                "QPushButton:checked { background:rgba(46,230,166,0.18);"
+                "  border:1px solid rgba(46,230,166,0.5); color:#2ee6a6; }")
+            b.clicked.connect(lambda _=False, g=gid: self._select_board(g))
+            self._lb_tabs[gid] = b
+            lb_head.addWidget(b)
+        lb_head.addStretch()
+        right.addLayout(lb_head)
+
         self.lb = QListWidget()
         self.lb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.lb.setAlternatingRowColors(True)
@@ -197,22 +238,80 @@ class HomeWidget(QWidget):
         root.addLayout(right, 1)
         self.refresh()
 
+    # ---- 우측 페이지 구성 ----
+    def _card_grid(self) -> tuple[QScrollArea, QGridLayout]:
+        host = QWidget()
+        grid = QGridLayout(host)
+        grid.setContentsMargins(0, 0, 6, 0)
+        grid.setSpacing(14)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidget(host)
+        return scroll, grid
+
+    def _build_game_page(self) -> QWidget:
+        scroll, grid = self._card_grid()
+        for i, g in enumerate(REGISTRY):
+            card = _GameCard(g.title, g.subtitle, g.emoji, g.accent)
+            if g.id == "stretch":
+                card.clicked.connect(self._show_courses)
+            else:
+                card.clicked.connect(lambda gid=g.id: self._start_game(gid))
+            grid.addWidget(card, i // 2, i % 2)
+        grid.setRowStretch(grid.rowCount(), 1)
+        return scroll
+
+    def _build_course_page(self) -> QWidget:
+        scroll, grid = self._card_grid()
+        for i, c in enumerate(load_courses()):
+            card = _CourseCard(c)
+            card.clicked.connect(lambda c=c: self._start_course(c))
+            grid.addWidget(card, i // 2, i % 2)
+        grid.setRowStretch(grid.rowCount(), 1)
+        return scroll
+
+    def _show_courses(self) -> None:
+        self._pages.setCurrentIndex(1)
+        self._panel_title.setText("코스 선택")
+        self._back_btn.show()
+
+    def _show_games(self) -> None:
+        self._pages.setCurrentIndex(0)
+        self._panel_title.setText("게임 선택")
+        self._back_btn.hide()
+
+    # ---- 시작 ----
+    def _params(self) -> dict:
+        return {"name": self.name.text().strip()}
+
     def _start(self) -> None:
-        self.startRequested.emit(self.name.text().strip(), [])
+        """빠른 시작: 기본 스트레칭 세트."""
+        self.gameSelected.emit("stretch", {**self._params(), "poses": []})
+
+    def _start_game(self, game_id: str) -> None:
+        self.gameSelected.emit(game_id, self._params())
 
     def _start_course(self, c: dict) -> None:
         poses = list(c["poses"])
         if c.get("shuffle"):
             import random
             random.shuffle(poses)  # 시작할 때마다 새 순서
-        self.startRequested.emit(self.name.text().strip(), poses)
+        self.gameSelected.emit("stretch", {**self._params(), "poses": poses})
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)
 
+    # ---- 리더보드 ----
+    def _select_board(self, game_id: str) -> None:
+        self._lb_game = game_id
+        self.refresh()
+
     def refresh(self) -> None:
+        for gid, b in self._lb_tabs.items():
+            b.setChecked(gid == self._lb_game)
         self.lb.clear()
-        rows = top_n(10)
+        rows = top_n(10, game=self._lb_game)
         if not rows:
             self.lb.addItem("아직 기록이 없어요. 첫 도전자가 되어보세요!")
             return

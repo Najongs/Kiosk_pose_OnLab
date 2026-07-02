@@ -1,0 +1,230 @@
+"""미니게임 화면 합성 (Qt 비의존) — renderer.py 와 같은 계약.
+
+각 compose_* 는 (표시 해상도 BGR 프레임, 표시 좌표로 스케일된 primary,
+게임 State, anim_t) 를 받아 완성 화면 한 장을 반환한다.
+룩은 기존 스트레칭 HUD 와 통일: 네온 스켈레톤 + 반투명 패널 + 컨페티/등급.
+"""
+
+from __future__ import annotations
+
+import cv2
+import numpy as np
+
+from core.drawing import (
+    TextItem,
+    draw_skeleton,
+    draw_texts,
+    gauge_bar,
+    panel,
+    text_width,
+    translucent_rect,
+)
+from core.games.jump import JState, JumpState
+from core.games.pushup import PState, PushupState
+from core.games.reaction import ReactionState, RState
+from core.pose_estimator import PersonPose
+from ui.hud import confetti, grade_of, msg_pill, progress_dots
+
+ACCENT = (160, 231, 127)      # 민트 (BGR)
+GOLD = (60, 200, 255)
+WARN_RGB = (255, 140, 140)
+
+
+def _top_bar(frame: np.ndarray, texts: list[TextItem], title: str,
+             sub: str = "") -> None:
+    h, w = frame.shape[:2]
+    translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
+    cv2.line(frame, (0, int(h * 0.11)), (w, int(h * 0.11)), (72, 120, 96), 1,
+             cv2.LINE_AA)
+    big = max(26, h // 20)
+    texts.append(TextItem(title, (24, int(h * 0.055)), big,
+                          (255, 255, 255), anchor="lm"))
+    if sub:  # 제목 폭을 재서 겹치지 않게 배치
+        sx = max(int(w * 0.42), 24 + text_width(title, big) + 32)
+        texts.append(TextItem(sub, (sx, int(h * 0.055)),
+                              max(20, h // 28), (200, 220, 255), anchor="lm"))
+
+
+def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
+                score: float, lines: list[str], anim_t: float | None) -> None:
+    h, w = frame.shape[:2]
+    translucent_rect(frame, 0, 0, w, h, alpha=0.66)
+    confetti(frame, anim_t)
+    panel(frame, int(w * 0.16), int(h * 0.22), int(w * 0.84), int(h * 0.80),
+          radius=24, color=(12, 14, 24), alpha=0.72,
+          border=ACCENT, border_thickness=2)
+    texts.append(TextItem(headline, (w // 2, int(h * 0.32)), max(34, h // 14),
+                          (120, 255, 140), anchor="mm"))
+    grade, grade_rgb = grade_of(score)
+    score_fs = max(60, h // 8)
+    score_txt = f"{score:.0f}점"
+    texts.append(TextItem(score_txt, (w // 2, int(h * 0.46)),
+                          score_fs, (255, 255, 255), anchor="mm", stroke=5))
+    half = text_width(score_txt, score_fs) // 2  # 점수 폭을 재서 등급을 우측에
+    texts.append(TextItem(grade, (w // 2 + half + int(w * 0.05), int(h * 0.45)),
+                          max(50, h // 10), grade_rgb, anchor="mm", stroke=5))
+    fs = max(20, h // 26)
+    y = int(h * 0.58)
+    for line in lines:
+        texts.append(TextItem(line, (w // 2, y), fs, (220, 235, 255), anchor="mm"))
+        y += int(fs * 1.6)
+
+
+def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
+                     state: ReactionState, anim_t: float | None = None
+                     ) -> np.ndarray:
+    h, w = frame.shape[:2]
+    texts: list[TextItem] = []
+    if primary is not None:
+        c = GOLD if state.signal_on else (0, 235, 0)
+        draw_skeleton(frame, primary, color=c,
+                      joint_color=(90, 220, 255) if state.signal_on
+                      else (0, 160, 255))
+
+    cur = min(state.round_index + 1, state.round_total)
+    _top_bar(frame, texts, "반응속도 테스트", f"라운드 {cur}/{state.round_total}")
+    progress_dots(frame, state.round_index, state.round_total, w, h)
+    if state.best_ms is not None and state.state != RState.DONE:
+        texts.append(TextItem(f"최고 {state.best_ms:.0f}ms",
+                              (24, int(h * 0.16)), max(20, h // 28),
+                              (255, 235, 180), anchor="lm"))
+
+    if state.state == RState.SIGNAL:
+        # 화면 테두리 플래시 + 큰 신호 텍스트
+        t = max(6, h // 40)
+        cv2.rectangle(frame, (t // 2, t // 2), (w - t // 2, h - t // 2),
+                      GOLD, t, cv2.LINE_AA)
+        texts.append(TextItem("지금!", (w // 2, int(h * 0.42)), max(90, h // 5),
+                              (255, 230, 90), anchor="mm", stroke=6))
+        msg_pill(frame, texts, "손을 번쩍 드세요!", int(h * 0.66),
+                 max(26, h // 20))
+    elif state.state == RState.REST and (state.false_start or state.timed_out):
+        msg_pill(frame, texts, state.message, int(h * 0.48), max(30, h // 16),
+                 WARN_RGB)
+    elif state.state == RState.REST and state.last_ms is not None:
+        texts.append(TextItem(f"{state.last_ms:.0f}", (w // 2, int(h * 0.44)),
+                              max(90, h // 5), (255, 255, 255), anchor="mm",
+                              stroke=6))
+        texts.append(TextItem("ms", (w // 2, int(h * 0.58)), max(30, h // 18),
+                              (200, 220, 255), anchor="mm"))
+    elif state.state == RState.DONE:
+        avg = f"{state.avg_ms:.0f}ms" if state.avg_ms is not None else "-"
+        best = f"{state.best_ms:.0f}ms" if state.best_ms is not None else "-"
+        lines = [f"평균 {avg}   ·   최고 {best}"]
+        if state.false_starts:
+            lines.append(f"부정 출발 {state.false_starts}회")
+        _done_panel(frame, texts, "반응속도 결과", state.score or 0.0, lines,
+                    anim_t)
+    else:
+        msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22))
+
+    return draw_texts(frame, texts)
+
+
+def compose_jump(frame: np.ndarray, primary: PersonPose | None,
+                 state: JumpState, anim_t: float | None = None) -> np.ndarray:
+    h, w = frame.shape[:2]
+    texts: list[TextItem] = []
+    if primary is not None:
+        draw_skeleton(frame, primary, color=(0, 235, 0),
+                      joint_color=(0, 160, 255))
+
+    cur = min(state.attempt_index + 1, state.attempt_total)
+    _top_bar(frame, texts, "높이뛰기", f"시도 {cur}/{state.attempt_total}")
+    progress_dots(frame, state.attempt_index, state.attempt_total, w, h)
+
+    # 기준선(어둡게) + 목표선(액센트, '공' 표시) — 게임 좌표는 표시 프레임 기준
+    if state.baseline_head_y is not None and state.state != JState.DONE:
+        yb = int(state.baseline_head_y)
+        for x0 in range(0, w, 30):
+            cv2.line(frame, (x0, yb), (min(w, x0 + 15), yb), (110, 116, 138), 2,
+                     cv2.LINE_AA)
+    if state.target_line_y is not None and state.state in (
+            JState.READY, JState.JUMP, JState.REST):
+        yt = int(state.target_line_y)
+        cv2.line(frame, (0, yt), (w, yt), ACCENT, 3, cv2.LINE_AA)
+        r = max(10, h // 40)
+        cv2.circle(frame, (w // 2, yt - r), r, (80, 200, 255), -1, cv2.LINE_AA)
+        cv2.circle(frame, (w // 2, yt - r), r, (30, 120, 200), 2, cv2.LINE_AA)
+        texts.append(TextItem(f"목표 {state.target_cm:.0f}cm", (16, yt - 10),
+                              max(18, h // 32), (160, 255, 200), anchor="lb"))
+
+    if state.best_cm is not None and state.state != JState.DONE:
+        texts.append(TextItem(f"최고 약 {state.best_cm:.0f}cm",
+                              (24, int(h * 0.16)), max(20, h // 28),
+                              (255, 235, 180), anchor="lm"))
+
+    if state.state == JState.CALIBRATE:
+        gx, gw_ = int(w * 0.3), int(w * 0.4)
+        gy, gh_ = int(h * 0.62), max(16, h // 32)
+        panel(frame, gx - 12, gy - 12, gx + gw_ + 12, gy + gh_ + 12, radius=10,
+              color=(14, 16, 26), alpha=0.55)
+        gauge_bar(frame, gx, gy, gw_, gh_, state.calib_progress, fg=ACCENT)
+        msg_pill(frame, texts, state.message, int(h * 0.54), max(24, h // 22))
+    elif state.state == JState.REST and state.last_cm is not None:
+        texts.append(TextItem(f"약 {state.last_cm:.0f}cm",
+                              (w // 2, int(h * 0.44)), max(70, h // 6),
+                              (255, 255, 255), anchor="mm", stroke=6))
+    elif state.state == JState.DONE:
+        best = state.best_cm or 0.0
+        tries = "  ·  ".join(f"{c:.0f}cm" for c in state.attempts_cm) or "-"
+        _done_panel(frame, texts, "높이뛰기 결과", state.score or 0.0,
+                    [f"최고 약 {best:.0f}cm", f"기록: {tries}",
+                     "* 단일 카메라 근사치"], anim_t)
+    else:
+        msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22))
+
+    return draw_texts(frame, texts)
+
+
+def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
+                   state: PushupState, anim_t: float | None = None
+                   ) -> np.ndarray:
+    h, w = frame.shape[:2]
+    texts: list[TextItem] = []
+    if primary is not None:
+        draw_skeleton(frame, primary,
+                      color=(0, 235, 0) if state.posture_ok else (60, 80, 235),
+                      joint_color=(0, 160, 255))
+
+    sub = (f"남은 시간 {state.time_remaining:.0f}s"
+           if state.mode == "timed" and state.time_remaining is not None
+           else f"목표 {state.target_reps}개")
+    _top_bar(frame, texts, "팔굽혀펴기", sub)
+
+    if state.state == PState.IDLE:
+        msg_pill(frame, texts, state.message, int(h * 0.5), max(26, h // 20))
+        texts.append(TextItem("측면(옆모습)이 잘 보이면 더 정확해요",
+                              (w // 2, int(h * 0.60)), max(18, h // 32),
+                              (170, 185, 210), anchor="mm"))
+    elif state.state == PState.COUNTING:
+        # 큰 개수 카운터 (우측)
+        panel(frame, int(w * 0.72), int(h * 0.30), int(w * 0.97), int(h * 0.56),
+              radius=18, color=(12, 14, 24), alpha=0.6,
+              border=ACCENT, border_thickness=2)
+        texts.append(TextItem(str(state.reps), (int(w * 0.845), int(h * 0.41)),
+                              max(70, h // 6), (255, 255, 255), anchor="mm",
+                              stroke=5))
+        texts.append(TextItem("개", (int(w * 0.845), int(h * 0.52)),
+                              max(20, h // 28), (200, 220, 255), anchor="mm"))
+        # 팔꿈치 굽힘 게이지 (하단): up_angle→down_angle 구간을 0→1 로
+        if state.elbow_angle is not None:
+            span = max(1e-6, state.up_angle - state.down_angle)
+            ratio = max(0.0, min(1.0, (state.up_angle - state.elbow_angle) / span))
+            gx, gy = int(w * 0.2), int(h * 0.88)
+            gw_, gh_ = int(w * 0.6), max(18, h // 34)
+            panel(frame, gx - int(w * 0.055), gy - 10, gx + gw_ + 14,
+                  gy + gh_ + 10, radius=12, color=(14, 16, 26), alpha=0.5)
+            gauge_bar(frame, gx, gy, gw_, gh_, ratio, fg=(230, 180, 40))
+            texts.append(TextItem("굽힘", (gx - 12, gy + gh_ // 2),
+                                  max(18, h // 34), (255, 235, 180), anchor="rm"))
+        if not state.posture_ok and state.posture_msg:
+            msg_pill(frame, texts, state.posture_msg, int(h * 0.72),
+                     max(26, h // 20), WARN_RGB)
+    elif state.state == PState.DONE:
+        q = int((state.quality or 0) * 100)
+        _done_panel(frame, texts, "팔굽혀펴기 결과", state.score or 0.0,
+                    [f"{state.reps}개 (바른 자세 {state.good_reps}개)",
+                     f"자세 품질 {q}%"], anim_t)
+
+    return draw_texts(frame, texts)

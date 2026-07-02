@@ -23,19 +23,25 @@ def _save(records: list[dict]) -> None:
         json.dump(records, f, ensure_ascii=False, indent=0)
 
 
-def add_record(name: str, total: float, poses: list[tuple[str, float]], date: str) -> None:
+def add_record(name: str, total: float, poses: list[tuple[str, float]], date: str,
+               game: str = "stretch") -> None:
     records = _load()
     records.append({
         "name": name,
         "total": total,
         "poses": [[n, s] for n, s in poses],
         "date": date,
+        "game": game,
     })
     _save(records)
 
 
-def top_n(n: int = 10) -> list[dict]:
-    return sorted(_load(), key=lambda r: r.get("total", 0), reverse=True)[:n]
+def top_n(n: int = 10, game: str | None = None) -> list[dict]:
+    """상위 n개. game 지정 시 해당 게임만 (game 키 없는 과거 기록 = stretch)."""
+    records = _load()
+    if game is not None:
+        records = [r for r in records if r.get("game", "stretch") == game]
+    return sorted(records, key=lambda r: r.get("total", 0), reverse=True)[:n]
 
 
 def clear() -> None:
