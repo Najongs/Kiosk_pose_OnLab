@@ -59,14 +59,24 @@ class FrameWorker(QObject):
                                         name="pose-infer", daemon=True)
         infer_thread.start()
         last_emit = 0.0
+        no_frame_since: float | None = None
         try:
             while self._running:
                 frame = source.read()
                 if frame is None:
                     if not source.is_open():
                         break
+                    # 열려는 있는데 프레임이 계속 안 오면 무한 대기 대신 실패 처리
+                    now = time.monotonic()
+                    if no_frame_since is None:
+                        no_frame_since = now
+                    elif now - no_frame_since > 8.0:
+                        self.failed.emit("카메라에서 프레임이 오지 않습니다 — "
+                                         "연결 상태나 다른 앱의 카메라 사용 여부를 확인하세요")
+                        break
                     QThread.msleep(5)
                     continue
+                no_frame_since = None
                 # 추론용 복사본(표시 루프가 원본에 오버레이를 그리므로)
                 self._seq += 1
                 self._latest = (self._seq, frame.copy())

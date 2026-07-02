@@ -11,6 +11,7 @@ from __future__ import annotations
 import glob
 import os
 import sys
+import time
 from abc import ABC, abstractmethod
 
 import cv2
@@ -142,11 +143,33 @@ def _try_open(index: int, backend: int, width: int, height: int, fps: int):
     return cap
 
 
+_BE_NAME = {}
+
+
+def _backend_name(be: int) -> str:
+    if not _BE_NAME:
+        _BE_NAME.update({cv2.CAP_MSMF: "MSMF", cv2.CAP_DSHOW: "DSHOW",
+                         cv2.CAP_ANY: "AUTO"})
+    return _BE_NAME.get(be, str(be))
+
+
+def _probe(cap, tries: int = 25, delay: float = 0.06) -> bool:
+    """isOpened() 만 믿지 말고 실제 프레임이 나오는지 확인 (최대 ~1.5초).
+    일부 조합(백엔드×포맷)은 열리긴 해도 프레임을 전혀 주지 않는다."""
+    for _ in range(tries):
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            return True
+        time.sleep(delay)
+    return False
+
+
 def _open_camera(index: int, width: int, height: int, fps: int):
-    """MJPG 30fps 를 목표로 백엔드/해상도를 자동 협상.
+    """MJPG 30fps 를 목표로 백엔드/해상도를 자동 협상. 실제 프레임이 나오는
+    조합만 채택한다.
 
     무압축(YUY2)은 720p 에서 USB 대역폭 때문에 실제 7~10fps 밖에 안 나온다.
-    1) 각 백엔드에서 MJPG 협상 시도 (Windows: MSMF → DSHOW)
+    1) 각 백엔드에서 MJPG 협상 + 프레임 확인 (Windows: MSMF → DSHOW)
     2) 전부 YUY2 로만 열리면 640x480 으로 낮춰 대역폭 내 30fps 확보
        (포즈 모델은 내부에서 더 작게 줄여 쓰므로 정확도 영향 미미)
     """
@@ -157,30 +180,32 @@ def _open_camera(index: int, width: int, height: int, fps: int):
     else:
         backends = [cv2.CAP_ANY]
 
-    fallback = None
-    fallback_be = None
-    for be in backends:
-        cap = _try_open(index, be, width, height, fps)
-        if cap is None:
-            continue
-        if _codec_of(cap) == "MJPG":
-            if fallback is not None:
-                fallback.release()
-            return cap
-        if fallback is None:
-            fallback, fallback_be = cap, be
-        else:
-            cap.release()
-
-    if fallback is not None and (width > 640 or height > 480):
-        # MJPG 실패 — 저해상도로 낮춰 실전송 fps 확보 (기기를 먼저 놓아줘야 재오픈 가능)
-        fallback.release()
+    def attempt(w: int, h: int, want_mjpg: bool):
+        """(작동 확인된 cap, backend) 반환. want_mjpg=True 면 MJPG 협상만 채택."""
         for be in backends:
-            cap = _try_open(index, be, 640, 480, fps)
-            if cap is not None:
-                return cap
-        fallback = _try_open(index, fallback_be, width, height, fps)  # 최후: 원래대로
-    return fallback
+            cap = _try_open(index, be, w, h, fps)
+            if cap is None:
+                continue
+            codec = _codec_of(cap)
+            if want_mjpg and codec != "MJPG":
+                cap.release()
+                continue
+            if _probe(cap):
+                return cap, be
+            print(f"[카메라] {_backend_name(be)} {w}x{h} {codec}: "
+                  "열렸지만 프레임 없음 — 다음 조합 시도")
+            cap.release()
+        return None, None
+
+    cap, _ = attempt(width, height, want_mjpg=True)      # 1) MJPG 원해상도
+    if cap is not None:
+        return cap
+    if width > 640 or height > 480:                       # 2) 저해상도(대역폭 확보)
+        cap, _ = attempt(640, 480, want_mjpg=False)
+        if cap is not None:
+            return cap
+    cap, _ = attempt(width, height, want_mjpg=False)      # 3) 마지막: 되는 대로
+    return cap
 
 
 class CameraSource(FrameSource):
