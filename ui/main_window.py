@@ -9,6 +9,7 @@ from PySide6.QtGui import QKeyEvent
 from PySide6.QtWidgets import QMainWindow, QStackedWidget
 
 from core.appconfig import load_app_config
+from core.bgm import Bgm
 from core.frame_source import FrameSource
 from ui.admin_dialog import AdminDialog
 from ui.home import HomeWidget
@@ -41,10 +42,19 @@ class MainWindow(QMainWindow):
         self.session.exitRequested.connect(self._go_home)
         self.versus.exitRequested.connect(self._go_home)
 
+        self._bgm = Bgm()
+        self._apply_bgm()
+
         if fullscreen:
             self.showFullScreen()
         else:
             self.resize(1280, 800)
+
+    def _apply_bgm(self) -> None:
+        if load_app_config().get("bgm", True) and self._bgm.available:
+            self._bgm.start()
+        else:
+            self._bgm.stop()
 
     def _start_session(self, name: str, poses: list | None = None) -> None:
         cfg = load_app_config()
@@ -84,8 +94,10 @@ class MainWindow(QMainWindow):
                 return
         AdminDialog(self._camera_index, self).exec()
         self.home.refresh()
+        self._apply_bgm()  # 관리자에서 BGM 설정이 바뀌었을 수 있음
 
     def closeEvent(self, e) -> None:
+        self._bgm.stop()
         self.session.stop()
         self.versus.stop()
         from core.warm import close_all

@@ -47,6 +47,8 @@ class SessionState:
     results: list[tuple[str, float]] = field(default_factory=list)
     final_summary: float | None = None
     report: list[dict] = field(default_factory=list)  # 자세별 유연성 리포트
+    result_remaining: float | None = None  # RESULT 화면: 다음 자세까지 남은 초
+    next_pose_name: str | None = None      # RESULT 화면: 다음 자세 표시명
 
 
 class Session:
@@ -80,6 +82,28 @@ class Session:
     @property
     def _current_def(self) -> PoseDefinition:
         return self.pose_defs[self.index]
+
+    def _next_name(self) -> str | None:
+        if self.index + 1 < len(self.pose_defs):
+            return self.pose_defs[self.index + 1].display_name
+        return None
+
+    def skip(self, now: float) -> None:
+        """현재 자세를 건너뛰고 다음으로 (건너뛴 자세는 기록에서 제외).
+        RESULT 표시 중이면 대기 없이 즉시 다음 자세로 넘어간다."""
+        if self.state == State.RESULT:
+            self._deadline = now
+            return
+        if self.state not in (State.COUNTDOWN, State.SCORING):
+            return
+        self._hold = None
+        self._lost_since = None
+        self.index += 1
+        if self.index >= len(self.pose_defs):
+            self.state = State.DONE
+            self._deadline = now + self.result_seconds
+        else:
+            self._start_countdown(now)
 
     def _start_countdown(self, now: float) -> None:
         self.state = State.COUNTDOWN
@@ -166,6 +190,8 @@ class Session:
                     score_result=result, hold_progress=1.0,
                     last_score=score, results=list(self.results),
                     report=list(self.reports),
+                    result_remaining=self.result_seconds,
+                    next_pose_name=self._next_name(),
                 )
             msg = (f"'{pd.display_name}' 유지 중… {status.held_time:.1f}s"
                    if status.holding else f"'{pd.display_name}' 자세를 맞춰 주세요")
@@ -190,7 +216,8 @@ class Session:
                     self.state = State.IDLE
             # DONE 으로 전이한 프레임은 done 스냅샷 반환(final_summary 포함)
             if self.state == State.DONE:
-                avg = sum(s for _, s in self.results) / len(self.results)
+                avg = (sum(s for _, s in self.results) / len(self.results)
+                       if self.results else 0.0)
                 return SessionState(
                     state=State.DONE,
                     message=f"전체 완료! 평균 {avg:.0f}점",
@@ -206,6 +233,9 @@ class Session:
                 target_pose=pd if self.state == State.RESULT else None,
                 last_score=self.results[-1][1] if self.results else None,
                 results=list(self.results),
+                result_remaining=(max(0.0, (self._deadline or now) - now)
+                                  if self.state == State.RESULT else None),
+                next_pose_name=self._next_name() if self.state == State.RESULT else None,
             )
 
         # DONE

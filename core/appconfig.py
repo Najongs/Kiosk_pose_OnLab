@@ -13,10 +13,11 @@ DEFAULT_APP_CONFIG: dict = {
     "poseSet": ["forward_bend", "side_bend", "overhead_reach", "tpose"],
     "passAccuracy": 85.0,
     "countdownSeconds": 3.0,
-    "resultSeconds": 3.0,
+    "resultSeconds": 2.0,  # 결과 표시 2s + 카운트다운 3s = 자세 간 5s
     "holdSecondsOverride": None,
     "sound": True,
-    "voice": True,
+    "voice": False,  # 한국어 TTS 품질이 낮아 기본 꺼짐 (espeak-ng 필요)
+    "bgm": True,     # assets/bgm/ 에 음악 파일이 있으면 반복 재생
     "adminPin": "4000",  # 관리자 진입 비밀번호 (빈 문자열이면 잠금 해제)
     "showFps": False,    # 좌상단 표시/추론 FPS 진단 오버레이
 }

@@ -38,7 +38,8 @@ def example_image(pose_name: str) -> np.ndarray | None:
     for ext in (".png", ".jpg", ".jpeg", ".webp"):
         p = os.path.join(_EXAMPLES_DIR, pose_name + ext)
         if os.path.isfile(p):
-            img = cv2.imread(p)
+            from core.frame_source import imread_unicode
+            img = imread_unicode(p)  # 경로에 비ASCII(한글 사용자명 등) 있어도 안전
             break
     _example_cache[pose_name] = img
     return img
@@ -155,12 +156,18 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                               max(22, h // 24), (255, 255, 255), anchor="mm"))
 
     elif state.state == State.RESULT:
-        translucent_rect(frame, 0, int(h * 0.30), w, int(h * 0.70), alpha=0.6)
+        translucent_rect(frame, 0, int(h * 0.30), w, int(h * 0.74), alpha=0.6)
         score = state.last_score or 0.0
-        texts.append(TextItem("완료!", (w // 2, int(h * 0.42)), max(34, h // 14),
+        texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),
                               (120, 255, 140), anchor="mm"))
-        texts.append(TextItem(f"{score:.0f}점", (w // 2, int(h * 0.58)),
+        texts.append(TextItem(f"{score:.0f}점", (w // 2, int(h * 0.55)),
                               max(70, h // 6), (255, 255, 255), anchor="mm", stroke=5))
+        if state.result_remaining is not None:
+            n = int(np.ceil(state.result_remaining))
+            nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"
+                   if state.next_pose_name else f"{n}초 뒤 결과 화면")
+            texts.append(TextItem(nxt, (w // 2, int(h * 0.69)), max(20, h // 26),
+                                  (220, 235, 255), anchor="mm"))
 
     elif state.state == State.DONE:
         translucent_rect(frame, 0, 0, w, h, alpha=0.68)

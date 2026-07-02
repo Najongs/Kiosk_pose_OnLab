@@ -41,6 +41,10 @@ class SessionView(QWidget):
         self._home_btn.hide()
         self._quit_btn = QPushButton("✕", self)
         self._quit_btn.clicked.connect(self._exit)
+        self._skip_btn = QPushButton("건너뛰기 ▶", self)
+        self._skip_btn.clicked.connect(self._on_skip)
+        self._skip_btn.hide()
+        self._request_skip = None  # begin() 이 세션 클로저의 skip 플래그 setter 를 넣음
 
         self._engine: Engine | None = None  # 검증 도구 호환용 참조(워커가 생성)
         self._source = None                  # 헤드리스 render_once 용
@@ -82,6 +86,7 @@ class SessionView(QWidget):
         disp_ts: collections.deque = collections.deque(maxlen=40)
         infer_ts: collections.deque = collections.deque(maxlen=20)
         holder: dict = {}
+        flags = {"skip": False}  # UI 스레드가 세우고 표시 루프가 소비
 
         def infer(frame):
             """추론 스레드 전용(무거움): 모델 로드 + 포즈 추정 + 주 대상 추적."""
@@ -101,6 +106,9 @@ class SessionView(QWidget):
             if eng is None:
                 # 모델 로딩 중 — 카메라 미리보기만 먼저 보여준다
                 return fit_frame(frame, self._view_size), None
+            if flags["skip"]:
+                flags["skip"] = False
+                eng.session.skip(time.monotonic() - start)
             state = eng.session.update(primary, time.monotonic() - start)
             ref = get_ref(state.target_pose.name) if state.target_pose else None
             composed = compose(frame, primary, state, pass_acc, ref)
@@ -111,6 +119,8 @@ class SessionView(QWidget):
 
         self._infer_fn = infer
         self._render_fn = render
+        self._request_skip = lambda: flags.__setitem__("skip", True)
+        self._skip_btn.show()
         if not callable(source):
             self._source = source
         self._start_worker(source, infer, render)
@@ -151,6 +161,8 @@ class SessionView(QWidget):
                 pass
             self._source = None
         self._engine = None  # 공유 모델은 core.warm 이 관리 — close 하지 않음
+        self._request_skip = None
+        self._skip_btn.hide()
 
     def _exit(self) -> None:
         self.stop()
@@ -172,11 +184,17 @@ class SessionView(QWidget):
             add_record(self._name, state.final_summary or 0.0, state.results,
                        datetime.datetime.now().isoformat())
             self._home_btn.show()
+            self._skip_btn.hide()
 
     @Slot(str)
     def _on_failed(self, msg: str) -> None:
         self._label.setText(f"시작/처리 실패: {msg}")
         self._home_btn.show()
+        self._skip_btn.hide()
+
+    def _on_skip(self) -> None:
+        if self._request_skip is not None:
+            self._request_skip()
 
     # ---- 사운드/음성 큐 (상태 전이 1회성) ----
     def _reset_cue(self) -> None:
@@ -220,6 +238,9 @@ class SessionView(QWidget):
         self._home_btn.adjustSize()
         self._home_btn.move((self.width() - self._home_btn.width()) // 2,
                             int(self.height() * 0.9))
+        self._skip_btn.adjustSize()
+        self._skip_btn.move(self.width() - self._skip_btn.width() - 24,
+                            int(self.height() * 0.88))
         super().resizeEvent(e)
 
     def render_once(self):
