@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QKeyEvent
-from PySide6.QtWidgets import QMainWindow, QStackedWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from core.appconfig import load_app_config
 from core.bgm import Bgm
 from core.frame_source import FrameSource
 from ui.admin_dialog import AdminDialog
+from ui.attract import AttractOverlay
 from ui.home import HomeWidget
 from ui.qtutil import DARK_QSS
 from ui.session_view import SessionView
@@ -45,10 +46,54 @@ class MainWindow(QMainWindow):
         self._bgm = Bgm()
         self._apply_bgm()
 
+        # 어트랙트 모드: 홈에서 일정 시간 입력 없으면 예시 슬라이드쇼로 호객
+        self._attract = AttractOverlay(self)
+        self._attract.hide()
+        self._attract.dismissed.connect(self._reset_idle)
+        self._idle = QTimer(self)
+        self._idle.setSingleShot(True)
+        self._idle.timeout.connect(self._show_attract)
+        QApplication.instance().installEventFilter(self)
+        self._reset_idle()
+
         if fullscreen:
             self.showFullScreen()
         else:
             self.resize(1280, 800)
+
+    # ---- 어트랙트 모드 ----
+    def _attract_ms(self) -> int:
+        try:
+            return int(float(load_app_config().get("attractSeconds", 45)) * 1000)
+        except (TypeError, ValueError):
+            return 45000
+
+    def _reset_idle(self) -> None:
+        ms = self._attract_ms()
+        if ms > 0:
+            self._idle.start(ms)
+        else:
+            self._idle.stop()
+
+    def _show_attract(self) -> None:
+        if self._stack.currentWidget() is self.home and self._attract.has_content():
+            self._attract.setGeometry(self.rect())
+            self._attract.raise_()
+            self._attract.show()
+        else:
+            self._reset_idle()  # 세션/대결 중 — 나중에 다시
+
+    def eventFilter(self, obj, ev) -> bool:
+        t = ev.type()
+        if t in (QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress,
+                 QEvent.Type.TouchBegin):
+            self._reset_idle()
+        return super().eventFilter(obj, ev)
+
+    def resizeEvent(self, e) -> None:
+        if self._attract.isVisible():
+            self._attract.setGeometry(self.rect())
+        super().resizeEvent(e)
 
     def _apply_bgm(self) -> None:
         if load_app_config().get("bgm", True) and self._bgm.available:

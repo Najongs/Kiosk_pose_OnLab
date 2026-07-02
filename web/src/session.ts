@@ -22,6 +22,13 @@ export interface SessionState {
   results: [string, number][];
   finalSummary: number | null;
   report: PoseReport[];
+  combo: number;       // 연속 합격 콤보
+  comboBonus: number;  // 이번 자세에 붙은 콤보 보너스 점수
+}
+
+/** 콤보 보너스: 2연속부터 +2점씩, 최대 +10점 (파이썬 Session.combo_bonus 동일) */
+export function comboBonus(combo: number): number {
+  return Math.min(10, Math.max(0, combo - 1) * 2);
 }
 
 function blank(state: State, message: string, idx: number, total: number): SessionState {
@@ -29,7 +36,7 @@ function blank(state: State, message: string, idx: number, total: number): Sessi
     state, message, poseIndex: idx, poseTotal: total,
     targetPose: null, accuracy: null, scoreResult: null,
     holdProgress: 0, countdownRemaining: null, lastScore: null,
-    results: [], finalSummary: null, report: [],
+    results: [], finalSummary: null, report: [], combo: 0, comboBonus: 0,
   };
 }
 
@@ -41,6 +48,8 @@ export class Session {
   private hold: HoldEvaluator | null = null;
   private deadline: number | null = null;
   private lostSince: number | null = null;
+  private combo = 0;
+  private lastBonus = 0;
 
   constructor(
     private poseDefs: PoseDefinition[],
@@ -73,6 +82,8 @@ export class Session {
     this.hold = null;
     this.deadline = null;
     this.lostSince = null;
+    this.combo = 0;
+    this.lastBonus = 0;
   }
 
   update(primary: PersonPose | null, now: number): SessionState {
@@ -120,7 +131,9 @@ export class Session {
       const result = this.scorer.score(primary, pd);
       const status = hold.update(result.accuracy, result.valid, now);
       if (status.success) {
-        const score = status.avgAccuracy;
+        this.combo += 1;
+        this.lastBonus = comboBonus(this.combo);
+        const score = Math.min(100, status.avgAccuracy + this.lastBonus);
         this.results.push([pd.display_name, score]);
         this.reports.push(analyze(primary, pd, result.jointScores, score));
         this.state = "result";
@@ -133,6 +146,8 @@ export class Session {
         st.lastScore = score;
         st.results = [...this.results];
         st.report = [...this.reports];
+        st.combo = this.combo;
+        st.comboBonus = this.lastBonus;
         return st;
       }
       const msg = status.holding
@@ -143,6 +158,7 @@ export class Session {
       st.accuracy = result.accuracy;
       st.scoreResult = result;
       st.holdProgress = status.progress;
+      st.combo = this.combo;
       return st;
     }
 

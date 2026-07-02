@@ -49,6 +49,8 @@ class SessionState:
     report: list[dict] = field(default_factory=list)  # 자세별 유연성 리포트
     result_remaining: float | None = None  # RESULT 화면: 다음 자세까지 남은 초
     next_pose_name: str | None = None      # RESULT 화면: 다음 자세 표시명
+    combo: int = 0                          # 연속 합격 콤보 (건너뛰기/이탈 시 리셋)
+    combo_bonus: float = 0.0                # 이번 자세에 붙은 콤보 보너스 점수
 
 
 class Session:
@@ -74,9 +76,16 @@ class Session:
         self.index = 0
         self.results: list[tuple[str, float]] = []
         self.reports: list[dict] = []
+        self.combo = 0                        # 연속 합격 콤보
+        self._last_bonus = 0.0
         self._hold: HoldEvaluator | None = None
         self._deadline: float | None = None   # countdown/result 종료 시각
         self._lost_since: float | None = None
+
+    # 콤보 보너스: 2연속부터 +2점씩, 최대 +10점
+    @staticmethod
+    def combo_bonus(combo: int) -> float:
+        return min(10.0, max(0, combo - 1) * 2.0)
 
     # --- 헬퍼 ---
     @property
@@ -98,6 +107,7 @@ class Session:
             return
         self._hold = None
         self._lost_since = None
+        self.combo = 0  # 건너뛰면 콤보가 끊긴다
         self.index += 1
         if self.index >= len(self.pose_defs):
             self.state = State.DONE
@@ -119,6 +129,8 @@ class Session:
         self.index = 0
         self.results = []
         self.reports = []
+        self.combo = 0
+        self._last_bonus = 0.0
         self._hold = None
         self._deadline = None
         self._lost_since = None
@@ -172,12 +184,16 @@ class Session:
                     pose_index=self.index, pose_total=total,
                     target_pose=pd, accuracy=None,
                     hold_progress=status.progress,
+                    combo=self.combo,
                 )
             self._lost_since = None
             result = self.scorer.score(primary, pd)
             status = self._hold.update(result.accuracy, result.valid, now)
             if status.success:
-                score = status.avg_accuracy
+                self.combo += 1
+                bonus = self.combo_bonus(self.combo)
+                self._last_bonus = bonus
+                score = min(100.0, status.avg_accuracy + bonus)
                 self.results.append((pd.display_name, score))
                 self.reports.append(analyze(primary, pd, result.joint_scores, score))
                 self.state = State.RESULT
@@ -192,6 +208,7 @@ class Session:
                     report=list(self.reports),
                     result_remaining=self.result_seconds,
                     next_pose_name=self._next_name(),
+                    combo=self.combo, combo_bonus=bonus,
                 )
             msg = (f"'{pd.display_name}' 유지 중… {status.held_time:.1f}s"
                    if status.holding else f"'{pd.display_name}' 자세를 맞춰 주세요")
@@ -201,6 +218,7 @@ class Session:
                 pose_index=self.index, pose_total=total,
                 target_pose=pd, accuracy=result.accuracy,
                 score_result=result, hold_progress=status.progress,
+                combo=self.combo,
             )
 
         if self.state == State.RESULT:
@@ -236,6 +254,8 @@ class Session:
                 result_remaining=(max(0.0, (self._deadline or now) - now)
                                   if self.state == State.RESULT else None),
                 next_pose_name=self._next_name() if self.state == State.RESULT else None,
+                combo=self.combo,
+                combo_bonus=self._last_bonus if self.state == State.RESULT else 0.0,
             )
 
         # DONE

@@ -20,6 +20,7 @@ DEFAULT_APP_CONFIG: dict = {
     "bgm": True,     # assets/bgm/ 에 음악 파일이 있으면 반복 재생
     "adminPin": "4000",  # 관리자 진입 비밀번호 (빈 문자열이면 잠금 해제)
     "showFps": False,    # 좌상단 표시/추론 FPS 진단 오버레이
+    "attractSeconds": 45,  # 홈에서 이 시간(초) 입력 없으면 어트랙트 모드 (0=끄기)
 }
 
 

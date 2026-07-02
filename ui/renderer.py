@@ -180,9 +180,12 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
         cv2.line(frame, (0, int(h * 0.11)), (w, int(h * 0.11)), (72, 120, 96), 1,
                  cv2.LINE_AA)
-        texts.append(TextItem(f"자세 {state.pose_index + 1}/{state.pose_total}",
-                              (24, int(h * 0.055)), max(20, h // 28),
-                              (200, 220, 255), anchor="lm"))
+        n_txt = f"자세 {state.pose_index + 1}/{state.pose_total}"
+        if state.combo >= 2:
+            n_txt += f"  ·  콤보 x{state.combo}"
+        texts.append(TextItem(n_txt, (24, int(h * 0.055)), max(20, h // 28),
+                              (255, 190, 110) if state.combo >= 2 else (200, 220, 255),
+                              anchor="lm"))
         texts.append(TextItem(state.target_pose.display_name,
                               (int(w * 0.28), int(h * 0.055)), max(26, h // 20),
                               (255, 255, 255), anchor="lm"))
@@ -246,6 +249,10 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                               max(70, h // 6), (255, 255, 255), anchor="mm", stroke=5))
         texts.append(TextItem(grade, (int(w * 0.72), int(h * 0.52)),
                               max(60, h // 8), grade_rgb, anchor="mm", stroke=5))
+        if state.combo >= 2:
+            texts.append(TextItem(f"콤보 x{state.combo}  +{state.combo_bonus:.0f}점",
+                                  (int(w * 0.28), int(h * 0.52)), max(22, h // 26),
+                                  (255, 190, 110), anchor="mm", stroke=3))
         if state.result_remaining is not None:
             n = int(np.ceil(state.result_remaining))
             nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"
