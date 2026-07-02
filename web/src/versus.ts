@@ -33,10 +33,45 @@ function centerX(p: PersonPose): number {
   return (p.bbox[0] + p.bbox[2]) / 2;
 }
 
-/** 좌=P1, 우=P2 로 배정. */
-export function assignPlayers(poses: PersonPose[]): [PersonPose | null, PersonPose | null] {
-  if (poses.length === 0) return [null, null];
-  const s = [...poses].sort((a, b) => centerX(a) - centerX(b));
+function area(p: PersonPose): number {
+  return Math.max(0, p.bbox[2] - p.bbox[0]) * Math.max(0, p.bbox[3] - p.bbox[1]);
+}
+
+function iou(a: number[], b: number[]): number {
+  const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+  const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+  const inter = ix * iy;
+  if (inter <= 0) return 0;
+  const aa = Math.max(0, a[2] - a[0]) * Math.max(0, a[3] - a[1]);
+  const ab = Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
+  return inter / Math.max(1e-6, aa + ab - inter);
+}
+
+/** 같은 사람이 두 번 검출되는 경우 제거 — 많이 겹치면 큰 검출 하나만 남긴다. */
+export function dedupePoses(poses: PersonPose[], iouThresh = 0.45): PersonPose[] {
+  const out: PersonPose[] = [];
+  for (const p of [...poses].sort((a, b) => area(b) - area(a))) {
+    if (out.every((q) => iou(p.bbox, q.bbox) < iouThresh)) out.push(p);
+  }
+  return out;
+}
+
+/** 좌반=P1, 우반=P2. frameW 를 주면 화면 절반 기준 고정 배정 —
+ * 혼자 오른쪽에 있으면 P2, 왼쪽 사람이 P2 가 되는 일이 없다. */
+export function assignPlayers(
+  poses: PersonPose[], frameW?: number,
+): [PersonPose | null, PersonPose | null] {
+  const ps = dedupePoses(poses);
+  if (ps.length === 0) return [null, null];
+  if (frameW) {
+    const mid = frameW / 2;
+    const left = ps.filter((p) => centerX(p) < mid);
+    const right = ps.filter((p) => centerX(p) >= mid);
+    const pick = (arr: PersonPose[]) =>
+      arr.length ? arr.reduce((m, p) => (area(p) > area(m) ? p : m)) : null;
+    return [pick(left), pick(right)];
+  }
+  const s = [...ps].sort((a, b) => centerX(a) - centerX(b));
   if (s.length === 1) return [s[0], null];
   return [s[0], s[s.length - 1]];
 }
@@ -93,9 +128,9 @@ export class VersusSession {
     };
   }
 
-  update(poses: PersonPose[], now: number): VersusState {
+  update(poses: PersonPose[], now: number, frameW?: number): VersusState {
     const total = this.defs.length;
-    const [a, b] = assignPlayers(poses);
+    const [a, b] = assignPlayers(poses, frameW);
     const both = a !== null && b !== null;
 
     if (this.state === "idle") {
@@ -103,7 +138,10 @@ export class VersusSession {
         this.state = "countdown";
         this.deadline = now + this.countdownSeconds;
       }
-      return this.snap("idle", both ? "" : "두 명이 카메라 앞에 서 주세요", null, null,
+      const oneSide = (a === null) !== (b === null);
+      const msg = both ? "" : oneSide
+        ? "한 명씩 화면 왼쪽/오른쪽에 서 주세요" : "두 명이 카메라 앞에 서 주세요";
+      return this.snap("idle", msg, null, null,
         { present: a !== null }, { present: b !== null });
     }
 

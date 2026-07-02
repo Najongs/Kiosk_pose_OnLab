@@ -45,9 +45,46 @@ def _center_x(p: PersonPose) -> float:
     return (p.bbox[0] + p.bbox[2]) / 2.0
 
 
-def assign_players(poses: list[PersonPose]) -> tuple[PersonPose | None, PersonPose | None]:
+def _area(p: PersonPose) -> float:
+    x1, y1, x2, y2 = p.bbox
+    return max(0.0, x2 - x1) * max(0.0, y2 - y1)
+
+
+def _iou(a: tuple, b: tuple) -> float:
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    if inter <= 0:
+        return 0.0
+    area_a = max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+    area_b = max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+    return inter / max(1e-6, area_a + area_b - inter)
+
+
+def dedupe_poses(poses: list[PersonPose], iou_thresh: float = 0.45) -> list[PersonPose]:
+    """같은 사람이 두 번 검출되는 경우 제거 — 많이 겹치면 큰 검출 하나만 남긴다."""
+    out: list[PersonPose] = []
+    for p in sorted(poses, key=_area, reverse=True):
+        if all(_iou(p.bbox, q.bbox) < iou_thresh for q in out):
+            out.append(p)
+    return out
+
+
+def assign_players(poses: list[PersonPose],
+                   frame_w: float | None = None) -> tuple[PersonPose | None, PersonPose | None]:
+    """좌반=P1, 우반=P2. frame_w 를 주면 화면 절반 기준으로 고정 배정한다 —
+    혼자 오른쪽에 서 있으면 P2 로 잡히고, 왼쪽 사람이 P2 가 되는 일이 없다.
+    같은 반쪽에 여러 명이면 가장 큰(가까운) 사람을 쓴다."""
+    poses = dedupe_poses(poses)
     if not poses:
         return None, None
+    if frame_w:
+        mid = frame_w / 2.0
+        left = [p for p in poses if _center_x(p) < mid]
+        right = [p for p in poses if _center_x(p) >= mid]
+        a = max(left, key=_area) if left else None
+        b = max(right, key=_area) if right else None
+        return a, b
     s = sorted(poses, key=_center_x)
     if len(s) == 1:
         return s[0], None
@@ -98,17 +135,21 @@ class VersusSession:
             self.totals[i] += st.avg_accuracy
         return PlayerState(True, r.accuracy, st.progress, self.done[i], self.totals[i])
 
-    def update(self, poses: list[PersonPose], now: float) -> VersusState:
+    def update(self, poses: list[PersonPose], now: float,
+               frame_w: float | None = None) -> VersusState:
         total = len(self.defs)
-        a, b = assign_players(poses)
+        a, b = assign_players(poses, frame_w)
         both = a is not None and b is not None
 
         if self.state == VState.IDLE:
             if both:
                 self.state = VState.COUNTDOWN
                 self._deadline = now + self.countdown_seconds
-            return VersusState(VState.IDLE,
-                               "" if both else "두 명이 카메라 앞에 서 주세요",
+            one_side = (a is None) != (b is None)
+            msg = ("" if both else
+                   "한 명씩 화면 왼쪽/오른쪽에 서 주세요" if one_side else
+                   "두 명이 카메라 앞에 서 주세요")
+            return VersusState(VState.IDLE, msg,
                                self.index, total,
                                p1=PlayerState(present=a is not None),
                                p2=PlayerState(present=b is not None))

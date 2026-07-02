@@ -176,8 +176,8 @@ async function startVersus(): Promise<void> {
           canvas.height = camera!.height;
         }
         const poses = camera!.estimate(performance.now());
-        const [a, b] = assignPlayers(poses);
-        const state = vs.update(poses, performance.now() / 1000);
+        const [a, b] = assignPlayers(poses, canvas.width); // 좌반=P1, 우반=P2
+        const state = vs.update(poses, performance.now() / 1000, canvas.width);
         drawVersus(ctx, camera!.el, a, b, state, cfg.passAccuracy);
         cue(state);
         (window as unknown as { __vs?: unknown }).__vs = state;

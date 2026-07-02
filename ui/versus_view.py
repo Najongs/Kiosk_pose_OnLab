@@ -99,8 +99,9 @@ class VersusView(QWidget):
                 return fit_frame(frame, self._view_size), None  # 모델 로딩 중 미리보기
             _, vs = ctx
             poses = poses or []
-            a, b = assign_players(poses)
-            state = vs.update(poses, time.monotonic() - start)
+            w = frame.shape[1]
+            a, b = assign_players(poses, w)  # 좌반=P1, 우반=P2 (화면 절반 기준)
+            state = vs.update(poses, time.monotonic() - start, w)
             composed = compose_versus(frame, a, b, state, pass_acc)
             if show_fps:
                 disp_ts.append(time.monotonic())
