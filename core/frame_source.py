@@ -121,37 +121,81 @@ class VideoFileSource(FrameSource):
         self._cap.release()
 
 
+def _codec_of(cap) -> str:
+    fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+    return "".join(chr((fourcc >> 8 * i) & 0xFF) for i in range(4)).strip("\x00")
+
+
+def _try_open(index: int, backend: int, width: int, height: int, fps: int):
+    cap = cv2.VideoCapture(index, backend)
+    if not cap.isOpened():
+        cap.release()
+        return None
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    # 일부 드라이버는 FOURCC 변경 후 크기를 다시 설정해야 반영된다
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 오래된 프레임이 쌓이지 않게
+    return cap
+
+
+def _open_camera(index: int, width: int, height: int, fps: int):
+    """MJPG 30fps 를 목표로 백엔드/해상도를 자동 협상.
+
+    무압축(YUY2)은 720p 에서 USB 대역폭 때문에 실제 7~10fps 밖에 안 나온다.
+    1) 각 백엔드에서 MJPG 협상 시도 (Windows: MSMF → DSHOW)
+    2) 전부 YUY2 로만 열리면 640x480 으로 낮춰 대역폭 내 30fps 확보
+       (포즈 모델은 내부에서 더 작게 줄여 쓰므로 정확도 영향 미미)
+    """
+    if sys.platform == "win32":
+        # MSMF 가 열리는 데 수 초 걸리는 원인(HW 변환 초기화)을 끈다 — 오픈 즉시화
+        os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
+        backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]
+    else:
+        backends = [cv2.CAP_ANY]
+
+    fallback = None
+    fallback_be = None
+    for be in backends:
+        cap = _try_open(index, be, width, height, fps)
+        if cap is None:
+            continue
+        if _codec_of(cap) == "MJPG":
+            if fallback is not None:
+                fallback.release()
+            return cap
+        if fallback is None:
+            fallback, fallback_be = cap, be
+        else:
+            cap.release()
+
+    if fallback is not None and (width > 640 or height > 480):
+        # MJPG 실패 — 저해상도로 낮춰 실전송 fps 확보 (기기를 먼저 놓아줘야 재오픈 가능)
+        fallback.release()
+        for be in backends:
+            cap = _try_open(index, be, 640, 480, fps)
+            if cap is not None:
+                return cap
+        fallback = _try_open(index, fallback_be, width, height, fps)  # 최후: 원래대로
+    return fallback
+
+
 class CameraSource(FrameSource):
     """웹캠/키오스크 카메라. 카메라가 준비되면 사용."""
 
     def __init__(self, index: int = 0, width: int = 1280, height: int = 720, fps: int = 30):
-        cap = None
-        if sys.platform == "win32":
-            # Windows 기본(MSMF) 백엔드는 열기에 수 초 걸릴 수 있어 DirectShow 우선
-            cap = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-            if not cap.isOpened():
-                cap.release()
-                cap = None
-        if cap is None:
-            cap = cv2.VideoCapture(index)
-        self._cap = cap
-        if not self._cap.isOpened():
+        cap = _open_camera(index, width, height, fps)
+        if cap is None or not cap.isOpened():
             raise RuntimeError(f"카메라를 열 수 없음: index={index}")
-        # 무압축(YUY2) 협상 시 720p 가 5~10fps 로 제한되는 웹캠이 많다.
-        # MJPEG 을 명시 요청해 고해상도에서도 30fps 를 확보 (미지원 카메라는 무시됨).
-        self._cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self._cap.set(cv2.CAP_PROP_FPS, fps)
-        # 오래된 프레임이 쌓여 화면이 뒤처지지 않도록 버퍼 최소화
-        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        # 실제 협상된 값 로그 — 요청과 다르면(15fps 등) 카메라/백엔드 한계 진단용
+        self._cap = cap
+        # 실제 협상된 값 로그 — 요청과 다르면(YUY2/15fps 등) 카메라 한계 진단용
         w = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         f = self._cap.get(cv2.CAP_PROP_FPS)
-        fourcc = int(self._cap.get(cv2.CAP_PROP_FOURCC))
-        codec = "".join(chr((fourcc >> 8 * i) & 0xFF) for i in range(4)).strip("\x00")
-        print(f"[카메라] index={index} {w}x{h} @{f:.0f}fps codec={codec or '?'} "
+        print(f"[카메라] index={index} {w}x{h} @{f:.0f}fps codec={_codec_of(self._cap) or '?'} "
               f"(요청: {width}x{height} @{fps}fps MJPG)")
 
     def read(self) -> np.ndarray | None:
