@@ -164,6 +164,21 @@ def _probe(cap, tries: int = 25, delay: float = 0.06) -> bool:
     return False
 
 
+def _measure_fps(cap, n: int = 10, timeout: float = 2.0) -> float:
+    """실전송 fps 측정. 드라이버가 보고하는 명목값(30)과 달리 무압축 고해상도는
+    USB 대역폭 때문에 실제 전달이 7~10fps 인 경우가 많다."""
+    for _ in range(3):  # 워밍업(자동 노출 안정)
+        cap.read()
+    t0 = time.monotonic()
+    count = 0
+    while count < n and time.monotonic() - t0 < timeout:
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            count += 1
+    dt = time.monotonic() - t0
+    return count / dt if dt > 0 else 0.0
+
+
 def _open_msmf_guarded(index: int, width: int, height: int, fps: int,
                        timeout: float = 6.0):
     """MSMF 는 일부 환경에서 VideoCapture 열기 자체가 무한 블록된다.
@@ -184,31 +199,75 @@ def _open_msmf_guarded(index: int, width: int, height: int, fps: int,
     return box.get("cap")
 
 
-def _open_camera(index: int, width: int, height: int, fps: int):
-    """실제 프레임이 나오는 조합만 채택하는 자동 협상.
+# 한 번 찾은 좋은 모드는 프로세스 수명 동안 기억 — 다음 세션은 스캔 없이 즉시 오픈
+_MODE_CACHE: dict[int, tuple[int, int]] = {}
 
-    Windows 는 DSHOW 만 신뢰한다(MSMF 는 열기 자체가 무한 블록되는 환경이 있음).
-    무압축(YUY2)은 720p 에서 USB 대역폭 때문에 실제 7~10fps 밖에 안 나오므로:
-      1) MJPG 원해상도  2) 640x480(YUY2 여도 대역폭 내 30fps)  3) 되는 대로
-    그래도 실패하면 마지막으로 MSMF 를 타임아웃 걸고 시도한다.
+
+def _open_camera(index: int, width: int, height: int, fps: int,
+                 min_fps: float = 15.0):
+    """실측 fps 기반 자동 협상: 높은 해상도부터 실제 전송 fps 를 재서
+    min_fps 이상 나오는 가장 선명한 모드를 채택한다.
+
+    Windows 는 DSHOW 만 신뢰한다(MSMF 는 열기 자체가 무한 블록되는 환경이
+    있어 최후 수단으로만, 타임아웃을 걸고 시도). 무압축(YUY2) 카메라는
+    해상도에 따라 USB 대역폭이 실전송 fps 를 좌우한다:
+    720p ≈ 7~10fps, 800x600 ≈ 15~20fps, 640x480 ≈ 30fps.
     """
     be = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
-    ladder = [(width, height, True), (640, 480, False), (width, height, False)]
-    for w, h, want_mjpg in ladder:
+
+    cached = _MODE_CACHE.get(index)
+    if cached:
+        cap = _try_open(index, be, cached[0], cached[1], fps)
+        if cap is not None and _probe(cap):
+            return cap
+        if cap is not None:
+            cap.release()
+        _MODE_CACHE.pop(index, None)
+
+    candidates = [(width, height)]
+    for wh in ((1024, 576), (800, 600), (640, 480)):
+        if wh not in candidates and wh[0] * wh[1] < width * height:
+            candidates.append(wh)
+
+    tested: set = set()
+    best_mode: tuple[int, int] | None = None
+    best_fps = -1.0
+    for w, h in candidates:
         cap = _try_open(index, be, w, h, fps)
         if cap is None:
             continue
-        codec = _codec_of(cap)
-        if want_mjpg and codec != "MJPG":
-            print(f"[카메라] {_backend_name(be)} {w}x{h}: MJPG 미지원({codec}) — "
-                  "저해상도로 재시도")
+        aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if (aw, ah) in tested:  # 드라이버가 같은 모드로 붙임 — 재측정 불필요
             cap.release()
             continue
-        if _probe(cap):
+        tested.add((aw, ah))
+        if not _probe(cap):
+            print(f"[카메라] {_backend_name(be)} {aw}x{ah}: 프레임 없음 — 다음 시도")
+            cap.release()
+            continue
+        measured = _measure_fps(cap)
+        codec = _codec_of(cap)
+        if measured >= min_fps:
+            print(f"[카메라] {_backend_name(be)} {aw}x{ah} {codec} "
+                  f"실측 {measured:.1f}fps ≥ 최소 {min_fps:.0f} — 채택")
+            _MODE_CACHE[index] = (aw, ah)
             return cap
-        print(f"[카메라] {_backend_name(be)} {w}x{h} {codec}: "
-              "열렸지만 프레임 없음 — 다음 조합 시도")
-        cap.release()
+        print(f"[카메라] {_backend_name(be)} {aw}x{ah} {codec} "
+              f"실측 {measured:.1f}fps < 최소 {min_fps:.0f} — 낮은 해상도 시도")
+        if measured > best_fps:
+            best_fps, best_mode = measured, (aw, ah)
+        cap.release()  # 같은 장치라 다음 후보를 열려면 먼저 놓아줘야 함
+
+    if best_mode is not None:  # 최소 fps 미달 — 가장 빨랐던 모드라도 사용
+        cap = _try_open(index, be, best_mode[0], best_mode[1], fps)
+        if cap is not None and _probe(cap):
+            print(f"[카메라] 최소 fps 미달 — 가장 빠른 {best_mode[0]}x{best_mode[1]} "
+                  f"({best_fps:.1f}fps) 사용")
+            _MODE_CACHE[index] = best_mode
+            return cap
+        if cap is not None:
+            cap.release()
 
     if sys.platform == "win32":  # 최후 수단
         cap = _open_msmf_guarded(index, width, height, fps)
@@ -222,8 +281,9 @@ def _open_camera(index: int, width: int, height: int, fps: int):
 class CameraSource(FrameSource):
     """웹캠/키오스크 카메라. 카메라가 준비되면 사용."""
 
-    def __init__(self, index: int = 0, width: int = 1280, height: int = 720, fps: int = 30):
-        cap = _open_camera(index, width, height, fps)
+    def __init__(self, index: int = 0, width: int = 1280, height: int = 720,
+                 fps: int = 30, min_fps: float = 15.0):
+        cap = _open_camera(index, width, height, fps, min_fps)
         if cap is None or not cap.isOpened():
             raise RuntimeError(f"카메라를 열 수 없음: index={index}")
         self._cap = cap

@@ -28,7 +28,8 @@ def make_source_factory(source_arg: str, settings: dict, loop: bool):
         if source_arg.isdigit():
             cam = settings.get("camera", {})
             return CameraSource(int(source_arg), cam.get("width", 1280),
-                                cam.get("height", 720), cam.get("fps", 30))
+                                cam.get("height", 720), cam.get("fps", 30),
+                                cam.get("min_fps", 15))
         if os.path.isdir(source_arg) or os.path.splitext(source_arg)[1].lower() in _IMG_EXTS:
             return ImageSource(source_arg, loop=loop)
         return VideoFileSource(source_arg)
