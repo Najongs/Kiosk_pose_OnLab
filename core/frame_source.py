@@ -164,48 +164,59 @@ def _probe(cap, tries: int = 25, delay: float = 0.06) -> bool:
     return False
 
 
-def _open_camera(index: int, width: int, height: int, fps: int):
-    """MJPG 30fps 를 목표로 백엔드/해상도를 자동 협상. 실제 프레임이 나오는
-    조합만 채택한다.
+def _open_msmf_guarded(index: int, width: int, height: int, fps: int,
+                       timeout: float = 6.0):
+    """MSMF 는 일부 환경에서 VideoCapture 열기 자체가 무한 블록된다.
+    별도 스레드에서 열고 타임아웃을 걸어, 멈추면 포기한다(최후 수단 전용)."""
+    import threading
+    box: dict = {}
 
-    무압축(YUY2)은 720p 에서 USB 대역폭 때문에 실제 7~10fps 밖에 안 나온다.
-    1) 각 백엔드에서 MJPG 협상 + 프레임 확인 (Windows: MSMF → DSHOW)
-    2) 전부 YUY2 로만 열리면 640x480 으로 낮춰 대역폭 내 30fps 확보
-       (포즈 모델은 내부에서 더 작게 줄여 쓰므로 정확도 영향 미미)
-    """
-    if sys.platform == "win32":
-        # MSMF 가 열리는 데 수 초 걸리는 원인(HW 변환 초기화)을 끈다 — 오픈 즉시화
+    def work():
         os.environ.setdefault("OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS", "0")
-        backends = [cv2.CAP_MSMF, cv2.CAP_DSHOW, cv2.CAP_ANY]
-    else:
-        backends = [cv2.CAP_ANY]
+        box["cap"] = _try_open(index, cv2.CAP_MSMF, width, height, fps)
 
-    def attempt(w: int, h: int, want_mjpg: bool):
-        """(작동 확인된 cap, backend) 반환. want_mjpg=True 면 MJPG 협상만 채택."""
-        for be in backends:
-            cap = _try_open(index, be, w, h, fps)
-            if cap is None:
-                continue
-            codec = _codec_of(cap)
-            if want_mjpg and codec != "MJPG":
-                cap.release()
-                continue
-            if _probe(cap):
-                return cap, be
-            print(f"[카메라] {_backend_name(be)} {w}x{h} {codec}: "
-                  "열렸지만 프레임 없음 — 다음 조합 시도")
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        print("[카메라] MSMF 열기 응답 없음 — 건너뜀")
+        return None
+    return box.get("cap")
+
+
+def _open_camera(index: int, width: int, height: int, fps: int):
+    """실제 프레임이 나오는 조합만 채택하는 자동 협상.
+
+    Windows 는 DSHOW 만 신뢰한다(MSMF 는 열기 자체가 무한 블록되는 환경이 있음).
+    무압축(YUY2)은 720p 에서 USB 대역폭 때문에 실제 7~10fps 밖에 안 나오므로:
+      1) MJPG 원해상도  2) 640x480(YUY2 여도 대역폭 내 30fps)  3) 되는 대로
+    그래도 실패하면 마지막으로 MSMF 를 타임아웃 걸고 시도한다.
+    """
+    be = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
+    ladder = [(width, height, True), (640, 480, False), (width, height, False)]
+    for w, h, want_mjpg in ladder:
+        cap = _try_open(index, be, w, h, fps)
+        if cap is None:
+            continue
+        codec = _codec_of(cap)
+        if want_mjpg and codec != "MJPG":
+            print(f"[카메라] {_backend_name(be)} {w}x{h}: MJPG 미지원({codec}) — "
+                  "저해상도로 재시도")
             cap.release()
-        return None, None
-
-    cap, _ = attempt(width, height, want_mjpg=True)      # 1) MJPG 원해상도
-    if cap is not None:
-        return cap
-    if width > 640 or height > 480:                       # 2) 저해상도(대역폭 확보)
-        cap, _ = attempt(640, 480, want_mjpg=False)
-        if cap is not None:
+            continue
+        if _probe(cap):
             return cap
-    cap, _ = attempt(width, height, want_mjpg=False)      # 3) 마지막: 되는 대로
-    return cap
+        print(f"[카메라] {_backend_name(be)} {w}x{h} {codec}: "
+              "열렸지만 프레임 없음 — 다음 조합 시도")
+        cap.release()
+
+    if sys.platform == "win32":  # 최후 수단
+        cap = _open_msmf_guarded(index, width, height, fps)
+        if cap is not None:
+            if _probe(cap):
+                return cap
+            cap.release()
+    return None
 
 
 class CameraSource(FrameSource):
