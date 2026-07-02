@@ -96,15 +96,20 @@ class SessionView(QWidget):
         guide_style = str(app_config.get("guideStyle", "image"))
         print(f"[가이드] 스타일: {guide_style}")
         if guide_style == "mesh3d":
-            if self._char3d is None:
-                from ui.char3d_widget import create_character_widget
-                self._char3d = create_character_widget(self)
-            self._use_mesh3d = self._char3d is not None
-            print("[3D 가이드] 위젯 생성 성공 — 카운트다운/채점 중 표시됨"
-                  if self._use_mesh3d else
-                  "[3D 가이드] 위젯 생성 실패 → 절차적 캐릭터로 폴백")
-            # 3D 위젯이 뜨면 합성 단계의 2D 가이드 박스는 생략
-            guide_style = "none" if self._use_mesh3d else "character"
+            import os as _os
+            if _os.environ.get("ONLAB_QTQUICK3D") == "1":
+                # 실험용: 실시간 QtQuick3D (일부 GPU 드라이버에서 크래시 이력)
+                if self._char3d is None:
+                    from ui.char3d_widget import create_character_widget
+                    self._char3d = create_character_widget(self)
+                self._use_mesh3d = self._char3d is not None
+                print("[3D 가이드] QtQuick3D 위젯" if self._use_mesh3d
+                      else "[3D 가이드] QtQuick3D 실패 → 스프라이트로")
+                guide_style = "none" if self._use_mesh3d else "mesh3d"
+            else:
+                # 기본: 베이크된 스프라이트 (GPU 무관, 크래시 없음)
+                self._use_mesh3d = False
+                print("[3D 가이드] 베이크된 캐릭터 스프라이트 사용")
         else:
             self._use_mesh3d = False
         if self._char3d is not None:

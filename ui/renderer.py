@@ -66,6 +66,46 @@ def example_image(pose_name: str) -> np.ndarray | None:
     return imgs[0] if imgs else None
 
 
+# 베이크된 캐릭터 턴테이블 스프라이트 (tools/bake_character.py 산출물)
+_SPRITES_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "assets", "character", "sprites")
+_char_sprites: list[np.ndarray] | None = None
+SPRITE_FPS = 12.0
+
+
+def character_sprites() -> list[np.ndarray]:
+    """RGBA 턴테이블 프레임 목록 (없으면 빈 리스트)."""
+    global _char_sprites
+    if _char_sprites is None:
+        import glob as _glob
+        imgs = []
+        for p in sorted(_glob.glob(os.path.join(_SPRITES_DIR, "turn_*.png"))):
+            try:
+                data = np.fromfile(p, dtype=np.uint8)
+                im = cv2.imdecode(data, cv2.IMREAD_UNCHANGED)
+            except OSError:
+                im = None
+            if im is not None and im.ndim == 3 and im.shape[2] == 4:
+                imgs.append(im)
+        _char_sprites = imgs
+    return _char_sprites
+
+
+def _fit_image_alpha(frame: np.ndarray, rgba: np.ndarray,
+                     x: int, y: int, w: int, h: int) -> None:
+    """RGBA 스프라이트를 박스에 맞춰 알파 합성."""
+    ih0, iw0 = rgba.shape[:2]
+    scale = min(w / iw0, h / ih0)
+    nw, nh = max(1, int(iw0 * scale)), max(1, int(ih0 * scale))
+    resized = cv2.resize(rgba, (nw, nh), interpolation=cv2.INTER_AREA)
+    ox, oy = x + (w - nw) // 2, y + (h - nh) // 2
+    roi = frame[oy:oy + nh, ox:ox + nw]
+    a = resized[..., 3:4].astype(np.float32) / 255.0
+    roi[:] = (resized[..., :3].astype(np.float32) * a
+              + roi.astype(np.float32) * (1.0 - a)).astype(np.uint8)
+
+
 def _fit_image(frame: np.ndarray, img: np.ndarray, x: int, y: int, w: int, h: int) -> None:
     if img is None:
         return
@@ -304,6 +344,14 @@ def draw_guide(frame: np.ndarray, pose_name: str,
     pad = int(bw * 0.1)
     ix, iy = bx + pad, by + int(bh * 0.16)
     iw, ih = bw - pad * 2, bh - int(bh * 0.16) - pad
+
+    if style == "mesh3d":
+        sprites = character_sprites()
+        if sprites:
+            idx = int((anim_t or 0) * SPRITE_FPS) % len(sprites)
+            _fit_image_alpha(frame, sprites[idx], ix, iy, iw, ih)
+            return
+        style = "character"  # 스프라이트 없으면 절차적 캐릭터로
 
     imgs = example_images(pose_name)
     ref3d = get_ref3d(pose_name)
