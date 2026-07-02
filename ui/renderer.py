@@ -415,7 +415,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                       color=(60, 200, 255) if passing else (0, 235, 0),
                       joint_color=(90, 220, 255) if passing else (0, 160, 255))
 
-    if state.target_pose is not None and state.state in (State.COUNTDOWN, State.SCORING):
+    if (state.target_pose is not None and guide_style != "none"
+            and state.state in (State.COUNTDOWN, State.SCORING)):
         draw_guide(frame, state.target_pose.name, ref_norm, anim_t, guide_style)
         # 박스 상단 라벨 (좌측). 예시 이미지도 참조도 없으면 안내 문구
         texts.append(TextItem("따라해 보세요", (int(w * 0.02 + w * 0.09), int(h * 0.335)),

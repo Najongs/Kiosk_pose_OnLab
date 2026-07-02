@@ -51,6 +51,9 @@ class SessionView(QWidget):
             "background:rgba(20,16,4,0.65); border:2px solid #ffd75a;"
             "border-radius:14px; padding:10px 26px;")
         self._record_lbl.hide()
+        self._char3d = None        # 리깅 캐릭터(QtQuick3D) 오버레이 — 지연 생성
+        self._use_mesh3d = False
+        self._pix_size = (0, 0)
 
         self._engine: Engine | None = None  # 검증 도구 호환용 참조(워커가 생성)
         self._source = None                  # 헤드리스 render_once 용
@@ -91,6 +94,17 @@ class SessionView(QWidget):
         start = self._start
         show_fps = bool(app_config.get("showFps", False))
         guide_style = str(app_config.get("guideStyle", "image"))
+        if guide_style == "mesh3d":
+            if self._char3d is None:
+                from ui.char3d_widget import create_character_widget
+                self._char3d = create_character_widget(self)
+            self._use_mesh3d = self._char3d is not None
+            # 3D 위젯이 뜨면 합성 단계의 2D 가이드 박스는 생략
+            guide_style = "none" if self._use_mesh3d else "character"
+        else:
+            self._use_mesh3d = False
+        if self._char3d is not None:
+            self._char3d.hide()
         disp_ts: collections.deque = collections.deque(maxlen=40)
         infer_ts: collections.deque = collections.deque(maxlen=20)
         holder: dict = {}
@@ -179,6 +193,8 @@ class SessionView(QWidget):
         self._engine = None  # 공유 모델은 core.warm 이 관리 — close 하지 않음
         self._request_skip = None
         self._skip_btn.hide()
+        if self._char3d is not None:
+            self._char3d.hide()
 
     def _exit(self) -> None:
         self.stop()
@@ -192,6 +208,15 @@ class SessionView(QWidget):
             pix = pix.scaled(self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
                              Qt.TransformationMode.FastTransformation)
         self._label.setPixmap(pix)
+        self._pix_size = (pix.width(), pix.height())
+        if self._use_mesh3d and self._char3d is not None:
+            if state is not None and state.state in (State.COUNTDOWN, State.SCORING):
+                self._place_char3d()
+                if not self._char3d.isVisible():
+                    self._char3d.show()
+                    self._char3d.raise_()
+            else:
+                self._char3d.hide()
         if state is None:  # 모델 로딩 중 미리보기 프레임
             return
         self._cue(state)
@@ -216,6 +241,17 @@ class SessionView(QWidget):
     def _on_skip(self) -> None:
         if self._request_skip is not None:
             self._request_skip()
+
+    def _place_char3d(self) -> None:
+        """표시 중인 픽스맵 기준으로 2D 가이드 박스와 같은 자리에 배치."""
+        pw, ph = self._pix_size
+        if pw < 10 or ph < 10 or self._char3d is None:
+            return
+        ox = (self.width() - pw) // 2
+        oy = (self.height() - ph) // 2
+        bw = int(pw * 0.18)
+        self._char3d.setGeometry(ox + int(pw * 0.02), oy + int(ph * 0.30),
+                                 bw, int(bw * 1.3))
 
     # ---- 사운드/음성 큐 (상태 전이 1회성) ----
     def _reset_cue(self) -> None:

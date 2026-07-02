@@ -66,8 +66,10 @@ class AdminDialog(QDialog):
         self.guide_sel = QComboBox()
         self.guide_sel.addItem("예시 사진", "image")
         self.guide_sel.addItem("움직이는 캐릭터 (참조 캡처/임포트 필요)", "character")
-        if cfg.get("guideStyle") == "character":
-            self.guide_sel.setCurrentIndex(1)
+        self.guide_sel.addItem("3D 리깅 캐릭터 (assets/character/*.glb)", "mesh3d")
+        idx = self.guide_sel.findData(cfg.get("guideStyle", "image"))
+        if idx >= 0:
+            self.guide_sel.setCurrentIndex(idx)
 
         form.addRow("합격 정확도(%)", self.pass_spin)
         form.addRow("카운트다운(초)", self.count_spin)

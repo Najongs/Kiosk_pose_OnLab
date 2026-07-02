@@ -65,6 +65,10 @@ def main() -> int:
 
     sys.excepthook = _excepthook
 
+    # QQuickWidget(3D 캐릭터 가이드) 사용을 위한 권장 설정 — 앱 생성 전에 필요
+    from PySide6.QtCore import QCoreApplication, Qt
+    QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+
     app = QApplication(sys.argv)
     cam_index = int(args.source) if args.source.isdigit() else 0
     # 이미지/폴더 소스는 키오스크처럼 계속 돌도록 기본 반복
