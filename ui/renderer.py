@@ -252,23 +252,35 @@ def _draw_character_3d(frame: np.ndarray, ref3d: list[list[float]],
         k = near_k(d)
         col = shade(body, k)
         dark = shade((52, 96, 66), k)
+        hi = shade((208, 255, 224), k)  # 좌상단 광원 하이라이트 (원통/구 셰이딩)
         if kind == "limb":
             a, b = data  # type: ignore[misc]
-            width = max(2, int(lw * (0.65 + 0.55 * k)))
-            cv2.line(frame, P(a), P(b), dark, width + 3, cv2.LINE_AA)
-            cv2.line(frame, P(a), P(b), col, width, cv2.LINE_AA)
-            cv2.circle(frame, P(b), max(2, width - 1), (235, 255, 240), -1,
-                       cv2.LINE_AA)
+            width = max(3, int(lw * (0.7 + 0.6 * k)))
+            pa, pb = P(a), P(b)
+            off = max(1, width // 3)
+            cv2.line(frame, pa, pb, dark, width + 4, cv2.LINE_AA)
+            cv2.line(frame, pa, pb, col, width, cv2.LINE_AA)
+            cv2.line(frame, (pa[0] - off, pa[1] - off), (pb[0] - off, pb[1] - off),
+                     hi, max(2, int(width * 0.4)), cv2.LINE_AA)
+            cv2.circle(frame, pb, width // 2 + 2, col, -1, cv2.LINE_AA)  # 관절 구
+            cv2.circle(frame, (pb[0] - off, pb[1] - off), max(2, width // 4), hi,
+                       -1, cv2.LINE_AA)
         elif kind == "torso":
             quad = np.array([P(11), P(12), P(24), P(23)], dtype=np.int32)
-            cv2.fillPoly(frame, [quad], shade((40, 74, 52), k), cv2.LINE_AA)
+            cv2.fillPoly(frame, [quad], shade((44, 82, 56), k), cv2.LINE_AA)
             cv2.polylines(frame, [quad], True, col, 2, cv2.LINE_AA)
             neck = ((P(11)[0] + P(12)[0]) // 2, (P(11)[1] + P(12)[1]) // 2)
+            hip_mid = ((P(23)[0] + P(24)[0]) // 2, (P(23)[1] + P(24)[1]) // 2)
+            cv2.line(frame, neck, hip_mid, shade((64, 118, 82), k), lw * 2,
+                     cv2.LINE_AA)  # 몸통 중앙 음영 밴드
             cv2.line(frame, P(0), neck, col, lw, cv2.LINE_AA)
-        else:  # head
+        else:  # head — 구 셰이딩
             r = max(5, int(ih * 0.055 * (0.85 + 0.3 * k)))
-            cv2.circle(frame, P(0), r, col, -1, cv2.LINE_AA)
-            cv2.circle(frame, P(0), r, shade((60, 118, 84), k), 2, cv2.LINE_AA)
+            p0 = P(0)
+            cv2.circle(frame, p0, r, col, -1, cv2.LINE_AA)
+            cv2.circle(frame, (p0[0] - r // 3, p0[1] - r // 3), max(2, r // 3),
+                       hi, -1, cv2.LINE_AA)
+            cv2.circle(frame, p0, r, shade((60, 118, 84), k), 2, cv2.LINE_AA)
 
 
 def draw_guide(frame: np.ndarray, pose_name: str,

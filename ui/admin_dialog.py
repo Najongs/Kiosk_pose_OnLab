@@ -239,7 +239,7 @@ class CourseDialog(QDialog):
     def __init__(self, defs, course: dict | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("코스 편집" if course else "새 코스")
-        self.resize(640, 620)
+        self.resize(860, 680)  # 긴 자세명이 안 잘리게 넉넉히
         self._names = {d.name: d.display_name for d in defs}
 
         root = QVBoxLayout(self)
@@ -263,12 +263,14 @@ class CourseDialog(QDialog):
         root.addWidget(_h2("자세 구성"))
         lists = QHBoxLayout()
         left_col = QVBoxLayout()
-        left_col.addWidget(QLabel("전체 자세"))
+        left_col.addWidget(QLabel("전체 자세  (더블클릭 = 추가)"))
         self.avail = QListWidget()
+        self.avail.setWordWrap(True)  # 긴 이름 줄바꿈 (잘림 방지)
         for d in defs:
             self.avail.addItem(d.display_name)
-            self.avail.item(self.avail.count() - 1).setData(
-                Qt.ItemDataRole.UserRole, d.name)
+            it = self.avail.item(self.avail.count() - 1)
+            it.setData(Qt.ItemDataRole.UserRole, d.name)
+            it.setToolTip(d.display_name)
         self.avail.itemDoubleClicked.connect(lambda _: self._add())
         left_col.addWidget(self.avail)
         lists.addLayout(left_col, 1)
@@ -284,13 +286,15 @@ class CourseDialog(QDialog):
         lists.addLayout(btns)
 
         right_col = QVBoxLayout()
-        right_col.addWidget(QLabel("이 코스의 자세"))
+        right_col.addWidget(QLabel("이 코스의 자세  (더블클릭 = 제거)"))
         self.sel = QListWidget()
+        self.sel.setWordWrap(True)
         for slug in (course["poses"] if course else []):
             if slug in self._names:
                 self.sel.addItem(self._names[slug])
-                self.sel.item(self.sel.count() - 1).setData(
-                    Qt.ItemDataRole.UserRole, slug)
+                it = self.sel.item(self.sel.count() - 1)
+                it.setData(Qt.ItemDataRole.UserRole, slug)
+                it.setToolTip(self._names[slug])
         self.sel.itemDoubleClicked.connect(lambda _: self._remove())
         right_col.addWidget(self.sel)
         lists.addLayout(right_col, 1)
@@ -313,7 +317,9 @@ class CourseDialog(QDialog):
             return
         slug = it.data(Qt.ItemDataRole.UserRole)
         self.sel.addItem(it.text())
-        self.sel.item(self.sel.count() - 1).setData(Qt.ItemDataRole.UserRole, slug)
+        new_it = self.sel.item(self.sel.count() - 1)
+        new_it.setData(Qt.ItemDataRole.UserRole, slug)
+        new_it.setToolTip(it.text())
 
     def _remove(self) -> None:
         row = self.sel.currentRow()
