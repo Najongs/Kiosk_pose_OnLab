@@ -20,7 +20,7 @@ class AdminDialog(QDialog):
     def __init__(self, camera_index: int = 0, parent=None):
         super().__init__(parent)
         self.setWindowTitle("관리자 설정")
-        self.resize(560, 720)
+        self.resize(680, 860)
         self._camera_index = camera_index
         cfg = load_app_config()
 
@@ -87,7 +87,7 @@ class AdminDialog(QDialog):
 
         root.addWidget(_h2("코스 관리"))
         self.course_list = QListWidget()
-        self.course_list.setFixedHeight(170)
+        self.course_list.setFixedHeight(260)
         self.course_list.itemDoubleClicked.connect(lambda _: self._edit_course())
         root.addWidget(self.course_list)
         crow = QHBoxLayout()
@@ -239,7 +239,7 @@ class CourseDialog(QDialog):
     def __init__(self, defs, course: dict | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("코스 편집" if course else "새 코스")
-        self.resize(860, 680)  # 긴 자세명이 안 잘리게 넉넉히
+        self.resize(1040, 800)  # 긴 자세명·많은 자세도 여유 있게
         self._names = {d.name: d.display_name for d in defs}
 
         root = QVBoxLayout(self)
