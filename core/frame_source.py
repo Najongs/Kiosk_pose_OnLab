@@ -18,6 +18,18 @@ import numpy as np
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 
+def imread_unicode(path: str) -> "np.ndarray | None":
+    """유니코드(한글) 경로 안전 이미지 읽기. Windows 의 cv2.imread 는 비ASCII
+    경로에서 None 을 반환하므로 np.fromfile + imdecode 로 우회한다."""
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
 class FrameSource(ABC):
     @abstractmethod
     def read(self) -> np.ndarray | None:
@@ -64,7 +76,7 @@ class ImageSource(FrameSource):
             self._idx = 0
         path = self._paths[self._idx]
         self._idx += 1
-        frame = cv2.imread(path)
+        frame = imread_unicode(path)
         if frame is None:
             # 손상/미지원 파일은 건너뛴다
             self.last_path = path

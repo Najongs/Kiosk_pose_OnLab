@@ -65,6 +65,19 @@ ANGLE_TOL = 28
 LEAN_TOL = 15
 
 
+def _imread(path: str):
+    """유니코드(한글) 경로 안전 이미지 읽기. Windows 의 cv2.imread 는 한글 경로에서
+    None 을 반환하므로 np.fromfile + imdecode 로 우회한다."""
+    import cv2
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+    except OSError:
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
 def build_metrics(pose) -> list[dict]:
     kps = pose.keypoints
     vis = kps[:, 2]
@@ -115,13 +128,15 @@ def main() -> int:
             print(f"  [예정] {slug:22s} <- {disp}")
         return 0
 
-    import cv2
     from core.mediapipe_estimator import MediaPipeEstimator
 
     est = MediaPipeEstimator(static_image_mode=True)
     made: list[str] = []
     for img, slug, disp in present:
-        frame = cv2.imread(os.path.join(TESTDATA, img))
+        frame = _imread(os.path.join(TESTDATA, img))
+        if frame is None:
+            print(f"  [읽기실패] {img} — 건너뜀")
+            continue
         poses = est.estimate(frame)
         if not poses:
             print(f"  [검출실패] {disp} — 건너뜀")
