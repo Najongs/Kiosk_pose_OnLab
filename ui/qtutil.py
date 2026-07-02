@@ -36,6 +36,20 @@ QLineEdit, QSpinBox, QDoubleSpinBox { background: rgba(255,255,255,0.06);
 QLineEdit:focus, QDoubleSpinBox:focus { border-color: #2ee6a6;
   background: rgba(46,230,166,0.05); }
 
+QComboBox { background: rgba(255,255,255,0.06); color: #eef2fb;
+  border: 2px solid rgba(255,255,255,0.12); border-radius: 12px;
+  padding: 8px 14px; }
+QComboBox:hover { border-color: rgba(74,168,255,0.5); }
+QComboBox::drop-down { border: none; width: 32px; }
+QComboBox::down-arrow { image: none;
+  border-left: 6px solid transparent; border-right: 6px solid transparent;
+  border-top: 8px solid #9aa4bd; margin-right: 10px; }
+QComboBox QAbstractItemView { background: #161b2c; color: #eef2fb;
+  border: 1px solid rgba(255,255,255,0.16); border-radius: 10px;
+  padding: 6px; outline: none;
+  selection-background-color: rgba(46,230,166,0.22);
+  selection-color: #ffffff; }
+
 QListWidget { background: rgba(255,255,255,0.035);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 18px; padding: 8px; outline: none;

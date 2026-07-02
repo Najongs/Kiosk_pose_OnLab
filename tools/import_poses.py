@@ -27,7 +27,7 @@ sys.path.insert(0, ROOT)
 from core.geometry import angle_at, vector_angle_to_vertical  # noqa: E402
 from core.pose_def import resolve_point  # noqa: E402
 from core.pose_estimator import KEYPOINT_NAMES  # noqa: E402
-from core.refs import normalize_pose, set_ref  # noqa: E402
+from core.refs import normalize_pose, pose_to_ref3d, set_ref, set_ref3d  # noqa: E402
 
 TESTDATA = os.path.join(ROOT, "testdata")
 POSES_DIR = os.path.join(ROOT, "config", "poses")
@@ -154,8 +154,11 @@ def main() -> int:
         with open(os.path.join(POSES_DIR, f"{slug}.json"), "w", encoding="utf-8") as f:
             json.dump(definition, f, ensure_ascii=False, indent=2)
         shutil.copyfile(os.path.join(TESTDATA, img), os.path.join(EXAMPLES_DIR, f"{slug}.png"))
-        # 참조 스켈레톤도 저장 → '움직이는 캐릭터' 가이드에 사용
+        # 참조 스켈레톤(2D+3D)도 저장 → '움직이는 캐릭터' 가이드에 사용
         set_ref(slug, normalize_pose(poses[0]))
+        r3 = pose_to_ref3d(poses[0])
+        if r3:
+            set_ref3d(slug, r3)
         made.append(slug)
         print(f"  [생성] {slug:22s} 지표 {len(metrics)}개 (+참조 스켈레톤)  <- {disp}")
     est.close()

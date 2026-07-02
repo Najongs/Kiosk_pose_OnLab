@@ -24,7 +24,9 @@ from core.drawing import (
     translucent_rect,
 )
 from core.pose_estimator import PersonPose
-from core.refs import REF_VIS
+import math
+
+from core.refs import REF_VIS, get_ref3d
 from core.session import SessionState, State
 from core.versus import VersusState, VState
 
@@ -159,6 +161,116 @@ def _draw_character(frame: np.ndarray, ref: list[list[float]],
     cv2.circle(frame, (hx, hy), r, dark, 2, cv2.LINE_AA)
 
 
+# 3D 기본(서있는) 자세 — MediaPipe world 규약(엉덩이 원점, x 오른쪽, y 아래, 미터)
+_BASE3D = {
+    0: (0.0, -0.64, 0.04),
+    11: (-0.17, -0.44, 0.0), 12: (0.17, -0.44, 0.0),
+    13: (-0.23, -0.20, 0.02), 14: (0.23, -0.20, 0.02),
+    15: (-0.25, 0.02, 0.06), 16: (0.25, 0.02, 0.06),
+    23: (-0.09, 0.0, 0.0), 24: (0.09, 0.0, 0.0),
+    25: (-0.10, 0.42, 0.02), 26: (0.10, 0.42, 0.02),
+    27: (-0.11, 0.84, 0.0), 28: (0.11, 0.84, 0.0),
+}
+
+
+def _tween_progress(anim_t: float | None) -> float:
+    """서있기→목표→유지→복귀 사이클의 smoothstep 진행도."""
+    if anim_t is None:
+        return 1.0
+    cyc = (anim_t % CHAR_CYCLE_SECONDS) / CHAR_CYCLE_SECONDS
+    if cyc < 0.35:
+        u = cyc / 0.35
+    elif cyc < 0.75:
+        u = 1.0
+    else:
+        u = 1.0 - (cyc - 0.75) / 0.25
+    return u * u * (3 - 2 * u)
+
+
+def _draw_character_3d(frame: np.ndarray, ref3d: list[list[float]],
+                       ix: int, iy: int, iw: int, ih: int,
+                       anim_t: float | None) -> None:
+    """3D 월드 좌표 기반 턴테이블 캐릭터 — 좌우로 천천히 돌며 앞뒤 깊이를
+    보여줘 2D 착시(팔이 앞인지 뒤인지)를 없앤다. 깊이에 따라 굵기·밝기·
+    가림 순서가 달라지고, 바닥 그림자가 방향 기준을 잡아준다."""
+    t = _tween_progress(anim_t)
+    theta = 0.55 * math.sin((anim_t or 0.0) * 1.05)  # ±31도 턴테이블
+    c, s = math.cos(theta), math.sin(theta)
+
+    j3: dict[int, tuple[float, float, float]] = {}
+    for i, (bx, by, bz) in _BASE3D.items():
+        if i < len(ref3d) and len(ref3d[i]) >= 4 and ref3d[i][3] >= REF_VIS:
+            x = bx + (ref3d[i][0] - bx) * t
+            y = by + (ref3d[i][1] - by) * t
+            z = bz + (ref3d[i][2] - bz) * t
+        else:
+            x, y, z = bx, by, bz
+        j3[i] = (x, y, z)
+
+    # y축 회전 투영. 스케일은 회전 불변 반경으로 고정(프레임 간 출렁임 방지)
+    proj: dict[int, tuple[float, float]] = {}
+    depth: dict[int, float] = {}
+    for i, (x, y, z) in j3.items():
+        proj[i] = (x * c + z * s, y)
+        depth[i] = -x * s + z * c
+    rh = max(math.hypot(x, z) for x, y, z in j3.values()) * 2.0
+    ys = [y for _, y, _ in j3.values()]
+    ylo, yhi = min(ys), max(ys)
+    sc = 0.86 * min(iw / max(rh, 1e-3), ih / max(yhi - ylo, 1e-3))
+    cx = ix + iw / 2.0
+    cy0 = iy + ih / 2.0 - (ylo + yhi) / 2.0 * sc
+
+    def P(i: int) -> tuple[int, int]:
+        return int(cx + proj[i][0] * sc), int(cy0 + proj[i][1] * sc)
+
+    # 바닥 그림자 (방향/공간 기준점)
+    gy = int(cy0 + yhi * sc) + max(3, ih // 60)
+    cv2.ellipse(frame, (int(cx), gy), (int(iw * 0.30), max(4, ih // 26)),
+                0, 0, 360, (10, 12, 18), -1, cv2.LINE_AA)
+
+    dmin = min(depth.values())
+    dmax = max(depth.values())
+    rng = max(1e-6, dmax - dmin)
+
+    def near_k(d: float) -> float:  # 0=멀리, 1=가까이
+        return (d - dmin) / rng
+
+    def shade(base: tuple, k: float) -> tuple:
+        f = 0.55 + 0.55 * k
+        return tuple(min(255, int(v * f)) for v in base)
+
+    body = (127, 231, 160)  # 민트 (BGR)
+    lw = max(3, ih // 34)
+    items: list[tuple[float, str, object]] = []
+    for a, b in _CHAR_LIMBS:
+        items.append(((depth[a] + depth[b]) / 2, "limb", (a, b)))
+    items.append(((depth[11] + depth[12] + depth[23] + depth[24]) / 4, "torso", None))
+    items.append((depth[0], "head", None))
+    items.sort(key=lambda e: e[0])  # 먼 것부터 (painter's algorithm)
+
+    for d, kind, data in items:
+        k = near_k(d)
+        col = shade(body, k)
+        dark = shade((52, 96, 66), k)
+        if kind == "limb":
+            a, b = data  # type: ignore[misc]
+            width = max(2, int(lw * (0.65 + 0.55 * k)))
+            cv2.line(frame, P(a), P(b), dark, width + 3, cv2.LINE_AA)
+            cv2.line(frame, P(a), P(b), col, width, cv2.LINE_AA)
+            cv2.circle(frame, P(b), max(2, width - 1), (235, 255, 240), -1,
+                       cv2.LINE_AA)
+        elif kind == "torso":
+            quad = np.array([P(11), P(12), P(24), P(23)], dtype=np.int32)
+            cv2.fillPoly(frame, [quad], shade((40, 74, 52), k), cv2.LINE_AA)
+            cv2.polylines(frame, [quad], True, col, 2, cv2.LINE_AA)
+            neck = ((P(11)[0] + P(12)[0]) // 2, (P(11)[1] + P(12)[1]) // 2)
+            cv2.line(frame, P(0), neck, col, lw, cv2.LINE_AA)
+        else:  # head
+            r = max(5, int(ih * 0.055 * (0.85 + 0.3 * k)))
+            cv2.circle(frame, P(0), r, col, -1, cv2.LINE_AA)
+            cv2.circle(frame, P(0), r, shade((60, 118, 84), k), 2, cv2.LINE_AA)
+
+
 def draw_guide(frame: np.ndarray, pose_name: str,
                ref_norm: list[list[float]] | None,
                anim_t: float | None = None,
@@ -182,9 +294,14 @@ def draw_guide(frame: np.ndarray, pose_name: str,
     iw, ih = bw - pad * 2, bh - int(bh * 0.16) - pad
 
     imgs = example_images(pose_name)
-    use_char = bool(ref_norm) and (style == "character" or not imgs)
+    ref3d = get_ref3d(pose_name)
+    use_char = (bool(ref_norm) or ref3d is not None) and (
+        style == "character" or not imgs)
     if use_char:
-        _draw_character(frame, ref_norm, ix, iy, iw, ih, anim_t)
+        if ref3d is not None:
+            _draw_character_3d(frame, ref3d, ix, iy, iw, ih, anim_t)
+        else:
+            _draw_character(frame, ref_norm, ix, iy, iw, ih, anim_t)
     elif imgs:
         idx = 0
         if len(imgs) > 1 and anim_t is not None:
@@ -243,6 +360,33 @@ def _progress_dots(frame: np.ndarray, index: int, total: int, w: int, h: int) ->
             cv2.circle(frame, (cx, cy), 4, (96, 102, 124), -1, cv2.LINE_AA)
 
 
+_CONFETTI_COLORS = [(80, 200, 255), (160, 231, 127), (255, 168, 74),
+                    (196, 110, 255), (120, 240, 255)]  # BGR
+
+
+def _confetti(frame: np.ndarray, anim_t: float | None, n: int = 46) -> None:
+    """결과 화면용 떨어지는 컨페티 (결정적 의사난수 + anim_t 로 애니메이션)."""
+    if anim_t is None:
+        return
+    h, w = frame.shape[:2]
+
+    def rand(k: int, salt: float) -> float:
+        v = math.sin(k * 12.9898 + salt) * 43758.5453
+        return v - math.floor(v)
+
+    for k in range(n):
+        r1, r2, r3 = rand(k, 1.1), rand(k, 7.7), rand(k, 23.3)
+        speed = 0.22 + 0.33 * r2
+        y = ((r3 + anim_t * speed) % 1.15) - 0.075
+        x = r1 + 0.025 * math.sin(anim_t * 2.6 + k)
+        cxp, cyp = int(x * w), int(y * h)
+        size = 3 + int(4 * r2)
+        a = anim_t * (2.5 + 2 * r1) + k
+        dx, dy = int(size * math.cos(a)), int(size * math.sin(a))
+        cv2.line(frame, (cxp - dx, cyp - dy), (cxp + dx, cyp + dy),
+                 _CONFETTI_COLORS[k % len(_CONFETTI_COLORS)], 3, cv2.LINE_AA)
+
+
 def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
             pass_accuracy: float = 85.0,
             ref_norm: list[list[float]] | None = None,
@@ -252,14 +396,20 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
     texts: list[TextItem] = []
 
     if primary is not None:
-        draw_skeleton(frame, primary)
+        # 합격 범위에 들어오면 스켈레톤이 골드로 변한다 (즉각적인 성공 피드백)
+        passing = (state.state == State.SCORING and state.accuracy is not None
+                   and state.accuracy >= pass_accuracy)
+        draw_skeleton(frame, primary,
+                      color=(60, 200, 255) if passing else (0, 235, 0),
+                      joint_color=(90, 220, 255) if passing else (0, 160, 255))
 
     if state.target_pose is not None and state.state in (State.COUNTDOWN, State.SCORING):
         draw_guide(frame, state.target_pose.name, ref_norm, anim_t, guide_style)
         # 박스 상단 라벨 (좌측). 예시 이미지도 참조도 없으면 안내 문구
         texts.append(TextItem("따라해 보세요", (int(w * 0.02 + w * 0.09), int(h * 0.335)),
                               max(15, h // 42), (200, 220, 255), anchor="mm"))
-        if not example_images(state.target_pose.name) and not ref_norm:
+        if (not example_images(state.target_pose.name) and not ref_norm
+                and get_ref3d(state.target_pose.name) is None):
             # 박스 세로 중앙에 (테두리에 걸치지 않게)
             box_cy = int(h * 0.30 + int(w * 0.18) * 1.3 * 0.55)
             texts.append(TextItem("예시 준비 중", (int(w * 0.02 + w * 0.09), box_cy),
@@ -336,6 +486,7 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         panel(frame, int(w * 0.14), int(h * 0.30), int(w * 0.86), int(h * 0.74),
               radius=24, color=(12, 14, 24), alpha=0.68,
               border=(127, 231, 160), border_thickness=2)
+        _confetti(frame, anim_t)
         score = state.last_score or 0.0
         grade, grade_rgb = _grade_of(score)
         texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),

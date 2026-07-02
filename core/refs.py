@@ -72,3 +72,42 @@ def normalize_pose(pose: PersonPose) -> list[list[float]]:
     for k in pose.keypoints:
         out.append([float((k[0] - x1) / w), float((k[1] - y1) / h), float(k[2])])
     return out
+
+
+# ---- 3D 참조 (world landmarks, 미터·엉덩이 원점) — 회전 캐릭터 가이드용 ----
+_PATH3D = os.path.join(_ROOT, "config", "refs3d.json")
+_cache3d: dict[str, list[list[float]]] | None = None
+
+
+def _load3d() -> dict[str, list[list[float]]]:
+    global _cache3d
+    if _cache3d is None:
+        try:
+            with open(_PATH3D, encoding="utf-8") as f:
+                _cache3d = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            _cache3d = {}
+    return _cache3d
+
+
+def get_ref3d(pose: str) -> list[list[float]] | None:
+    """자세의 3D 참조 (33 x [x, y, z, visibility]) 또는 None."""
+    return _load3d().get(pose)
+
+
+def set_ref3d(pose: str, joints: list[list[float]]) -> None:
+    global _cache3d
+    m = _load3d()
+    m[pose] = joints
+    _cache3d = m
+    os.makedirs(os.path.dirname(_PATH3D), exist_ok=True)
+    with open(_PATH3D, "w", encoding="utf-8") as f:
+        json.dump(m, f, ensure_ascii=False)
+
+
+def pose_to_ref3d(pose: PersonPose) -> list[list[float]] | None:
+    """world_landmarks 를 [x,y,z,visibility] 리스트로 (없으면 None)."""
+    if pose.world_landmarks is None:
+        return None
+    return [[float(wl[0]), float(wl[1]), float(wl[2]), float(kp[2])]
+            for wl, kp in zip(pose.world_landmarks, pose.keypoints)]

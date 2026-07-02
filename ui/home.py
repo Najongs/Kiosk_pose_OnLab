@@ -60,7 +60,10 @@ class _CourseCard(QFrame):
         desc.setWordWrap(True)
         v.addWidget(desc)
 
-        meta = QLabel(f"{len(c['poses'])}개 자세")
+        meta_txt = f"{len(c['poses'])}개 자세"
+        if c.get("shuffle"):
+            meta_txt += "  ·  🔀 무작위"
+        meta = QLabel(meta_txt)
         meta.setStyleSheet("color:#6f7890; font-size:14px; font-weight:600;")
         v.addWidget(meta)
 
@@ -174,9 +177,7 @@ class HomeWidget(QWidget):
         grid.setSpacing(14)
         for i, c in enumerate(load_courses()):
             card = _CourseCard(c)
-            card.clicked.connect(
-                lambda c=c: self.startRequested.emit(self.name.text().strip(),
-                                                     list(c["poses"])))
+            card.clicked.connect(lambda c=c: self._start_course(c))
             grid.addWidget(card, i // 2, i % 2)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -198,6 +199,13 @@ class HomeWidget(QWidget):
 
     def _start(self) -> None:
         self.startRequested.emit(self.name.text().strip(), [])
+
+    def _start_course(self, c: dict) -> None:
+        poses = list(c["poses"])
+        if c.get("shuffle"):
+            import random
+            random.shuffle(poses)  # 시작할 때마다 새 순서
+        self.startRequested.emit(self.name.text().strip(), poses)
 
     def set_status(self, text: str) -> None:
         self.status.setText(text)

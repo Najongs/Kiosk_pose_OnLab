@@ -13,7 +13,9 @@ from core.appconfig import load_app_config, reset_app_config, save_app_config
 from core.courses import load_courses, new_course_id, save_courses
 from core.leaderboard import clear as clear_leaderboard
 from core.pose_def import list_poses, load_pose
-from core.refs import clear_ref, has_ref, normalize_pose, set_ref
+from core.refs import (
+    clear_ref, has_ref, normalize_pose, pose_to_ref3d, set_ref, set_ref3d,
+)
 
 
 class AdminDialog(QDialog):
@@ -201,11 +203,22 @@ class AdminDialog(QDialog):
         dlg.exec()
 
     # ---- 코스 관리 ----
+    _DIFF_COLOR = {"초급": "#2ee6a6", "중급": "#ffdc40", "고급": "#ff5a6a"}
+
     def _reload_courses(self) -> None:
+        from PySide6.QtGui import QColor, QIcon, QPixmap
+        from PySide6.QtWidgets import QListWidgetItem
         self.course_list.clear()
         for c in load_courses():
-            self.course_list.addItem(
-                f"{c['name']}  ·  {c.get('difficulty','')}  ·  {len(c['poses'])}개 자세")
+            shuffle = "  ·  🔀 무작위" if c.get("shuffle") else ""
+            it = QListWidgetItem(
+                f"{c['name']}  ·  {c.get('difficulty','')}  ·  "
+                f"{len(c['poses'])}개 자세{shuffle}")
+            it.setForeground(QColor("#eef2fb"))  # 팔레트와 무관하게 항상 밝게
+            pix = QPixmap(14, 14)
+            pix.fill(QColor(self._DIFF_COLOR.get(c.get("difficulty", ""), "#9aa4bd")))
+            it.setIcon(QIcon(pix))
+            self.course_list.addItem(it)
 
     def _new_course(self) -> None:
         courses = load_courses()
@@ -262,12 +275,15 @@ class CourseDialog(QDialog):
             self.diff_sel.setCurrentText(course["difficulty"])
         self.desc_edit = QLineEdit(course.get("desc", "") if course else "")
         self.desc_edit.setPlaceholderText("코스 설명 (선택)")
+        self.shuffle_chk = QCheckBox("🔀 무작위 순서로 재생 (시작할 때마다 섞임)")
+        self.shuffle_chk.setChecked(bool(course.get("shuffle")) if course else False)
         form.addRow("이름", self.name_edit)
         form.addRow("난이도", self.diff_sel)
         form.addRow("설명", self.desc_edit)
+        form.addRow(self.shuffle_chk)
         root.addLayout(form)
 
-        root.addWidget(_h2("자세 구성 (오른쪽 목록의 순서대로 진행)"))
+        root.addWidget(_h2("자세 구성"))
         lists = QHBoxLayout()
         left_col = QVBoxLayout()
         left_col.addWidget(QLabel("전체 자세"))
@@ -359,6 +375,7 @@ class CourseDialog(QDialog):
             "difficulty": self.diff_sel.currentText(),
             "desc": self.desc_edit.text().strip(),
             "poses": poses,
+            "shuffle": self.shuffle_chk.isChecked(),
         }
 
 
@@ -428,6 +445,9 @@ class CaptureDialog(QDialog):
         if self._last_primary is None:
             return
         set_ref(self._pose, normalize_pose(self._last_primary))
+        r3 = pose_to_ref3d(self._last_primary)
+        if r3:
+            set_ref3d(self._pose, r3)  # 회전 캐릭터용 3D 참조
         QMessageBox.information(self, "저장됨", "목표 자세 가이드가 저장되었습니다.")
         self.close()
 
