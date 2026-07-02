@@ -75,6 +75,17 @@ def _fit_image(frame: np.ndarray, img: np.ndarray, x: int, y: int, w: int, h: in
     frame[oy:oy + nh, ox:ox + nw] = resized
 
 
+def _grade_of(score: float) -> tuple[str, tuple[int, int, int]]:
+    """점수 → 등급 배지 (문자, RGB)."""
+    if score >= 95:
+        return "S", (255, 215, 90)
+    if score >= 85:
+        return "A", (120, 255, 140)
+    if score >= 70:
+        return "B", (120, 190, 255)
+    return "C", (200, 205, 220)
+
+
 def _acc_colors(accuracy: float, pass_accuracy: float):
     """(cv2 BGR bar 색, PIL RGB 텍스트 색) 반환."""
     if accuracy >= pass_accuracy:
@@ -228,10 +239,13 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
               radius=24, color=(12, 14, 24), alpha=0.68,
               border=(127, 231, 160), border_thickness=2)
         score = state.last_score or 0.0
+        grade, grade_rgb = _grade_of(score)
         texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),
                               (120, 255, 140), anchor="mm"))
         texts.append(TextItem(f"{score:.0f}점", (w // 2, int(h * 0.55)),
                               max(70, h // 6), (255, 255, 255), anchor="mm", stroke=5))
+        texts.append(TextItem(grade, (int(w * 0.72), int(h * 0.52)),
+                              max(60, h // 8), grade_rgb, anchor="mm", stroke=5))
         if state.result_remaining is not None:
             n = int(np.ceil(state.result_remaining))
             nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"

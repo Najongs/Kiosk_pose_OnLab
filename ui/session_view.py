@@ -18,7 +18,7 @@ from PySide6.QtCore import Qt, QThread, Signal, Slot
 from PySide6.QtWidgets import QLabel, QPushButton, QWidget
 
 from core.engine import Engine
-from core.leaderboard import add_record
+from core.leaderboard import add_record, top_n
 from core.refs import get_ref
 from core.session import SessionState, State
 from core.sound import Sound
@@ -45,6 +45,12 @@ class SessionView(QWidget):
         self._skip_btn.clicked.connect(self._on_skip)
         self._skip_btn.hide()
         self._request_skip = None  # begin() 이 세션 클로저의 skip 플래그 setter 를 넣음
+        self._record_lbl = QLabel("🏆 신기록!", self)
+        self._record_lbl.setStyleSheet(
+            "color:#ffd75a; font-size:34px; font-weight:900;"
+            "background:rgba(20,16,4,0.65); border:2px solid #ffd75a;"
+            "border-radius:14px; padding:10px 26px;")
+        self._record_lbl.hide()
 
         self._engine: Engine | None = None  # 검증 도구 호환용 참조(워커가 생성)
         self._source = None                  # 헤드리스 render_once 용
@@ -76,6 +82,7 @@ class SessionView(QWidget):
         self._saved = False
         self._reset_cue()
         self._home_btn.hide()
+        self._record_lbl.hide()
         self._label.setText("카메라·모델 준비 중…")
         self._label.setStyleSheet("color:#eef2fb; font-size:30px; background:#05070d;")
 
@@ -182,8 +189,13 @@ class SessionView(QWidget):
         self._cue(state)
         if state.state == State.DONE and not self._saved:
             self._saved = True
-            add_record(self._name, state.final_summary or 0.0, state.results,
+            final = state.final_summary or 0.0
+            prev_top = top_n(1)
+            is_record = final > 0 and (not prev_top or final > prev_top[0].get("total", 0))
+            add_record(self._name, final, state.results,
                        datetime.datetime.now().isoformat())
+            if is_record:
+                self._record_lbl.show()
             self._home_btn.show()
             self._skip_btn.hide()
 
@@ -242,6 +254,9 @@ class SessionView(QWidget):
         self._skip_btn.adjustSize()
         self._skip_btn.move(self.width() - self._skip_btn.width() - 24,
                             int(self.height() * 0.88))
+        self._record_lbl.adjustSize()
+        self._record_lbl.move((self.width() - self._record_lbl.width()) // 2,
+                              int(self.height() * 0.13))
         super().resizeEvent(e)
 
     def render_once(self):
