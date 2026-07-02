@@ -227,3 +227,6 @@ web/shots/
 
 # 런타임 로그
 error.log
+
+# 워크아웃 참조 스크린샷(저작권) — config/examples 로 파생만 사용
+testdata/*.png
