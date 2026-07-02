@@ -114,6 +114,9 @@ class AdminDialog(QDialog):
         rst = QPushButton("설정 초기화")
         rst.setObjectName("danger")
         rst.clicked.connect(self._reset_cfg)
+        cam = QPushButton("카메라 재탐색")
+        cam.clicked.connect(self._rescan_camera)
+        foot.addWidget(cam)
         close = QPushButton("저장 후 닫기")
         close.setObjectName("primary")
         close.clicked.connect(self._save_close)
@@ -151,7 +154,16 @@ class AdminDialog(QDialog):
     def _reset_cfg(self) -> None:
         if QMessageBox.question(self, "확인", "설정을 기본값으로 되돌릴까요?") == QMessageBox.StandardButton.Yes:
             reset_app_config()
+            from core.frame_source import clear_camera_cache
+            clear_camera_cache()
             self.reject()
+
+    def _rescan_camera(self) -> None:
+        from core.frame_source import clear_camera_cache
+        clear_camera_cache()
+        QMessageBox.information(
+            self, "완료",
+            "저장된 카메라 설정을 지웠습니다.\n다음 세션 시작 시 최적 해상도를 다시 측정합니다.")
 
     def _open_capture(self) -> None:
         pose = self.cap_sel.currentData()

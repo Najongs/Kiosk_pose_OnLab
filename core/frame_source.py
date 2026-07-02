@@ -9,6 +9,7 @@ CameraSource 로 교체만 하면 상위 로직은 그대로 동작한다.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import sys
 import time
@@ -199,8 +200,47 @@ def _open_msmf_guarded(index: int, width: int, height: int, fps: int,
     return box.get("cap")
 
 
-# 한 번 찾은 좋은 모드는 프로세스 수명 동안 기억 — 다음 세션은 스캔 없이 즉시 오픈
+# 한 번 찾은 좋은 모드는 기억해 다음부터 스캔 없이 즉시 오픈.
+# 프로세스 내 캐시 + 디스크(config/camera_cache.json, 앱 재시작에도 유지).
+# 관리자 화면의 '카메라 재탐색' 으로만 초기화된다.
 _MODE_CACHE: dict[int, tuple[int, int]] = {}
+_CACHE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "config", "camera_cache.json")
+
+
+def _load_mode_cache(index: int) -> tuple[int, int] | None:
+    try:
+        with open(_CACHE_PATH, encoding="utf-8") as f:
+            d = json.load(f).get(str(index))
+        if d:
+            return int(d["width"]), int(d["height"])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
+def _save_mode_cache(index: int, mode: tuple[int, int]) -> None:
+    try:
+        try:
+            with open(_CACHE_PATH, encoding="utf-8") as f:
+                m = json.load(f)
+        except (OSError, ValueError):
+            m = {}
+        m[str(index)] = {"width": mode[0], "height": mode[1]}
+        with open(_CACHE_PATH, "w", encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
+def clear_camera_cache() -> None:
+    """관리자 '카메라 재탐색': 다음 세션에서 최적 모드를 다시 측정한다."""
+    _MODE_CACHE.clear()
+    try:
+        os.remove(_CACHE_PATH)
+    except FileNotFoundError:
+        pass
 
 
 def _open_camera(index: int, width: int, height: int, fps: int,
@@ -215,14 +255,17 @@ def _open_camera(index: int, width: int, height: int, fps: int,
     """
     be = cv2.CAP_DSHOW if sys.platform == "win32" else cv2.CAP_ANY
 
-    cached = _MODE_CACHE.get(index)
+    cached = _MODE_CACHE.get(index) or _load_mode_cache(index)
     if cached:
         cap = _try_open(index, be, cached[0], cached[1], fps)
         if cap is not None and _probe(cap):
+            _MODE_CACHE[index] = cached
+            print(f"[카메라] 저장된 최적 모드 {cached[0]}x{cached[1]} 사용 "
+                  "(재탐색: 관리자 → 카메라 재탐색)")
             return cap
         if cap is not None:
             cap.release()
-        _MODE_CACHE.pop(index, None)
+        _MODE_CACHE.pop(index, None)  # 카메라가 바뀐 듯 — 아래에서 재스캔
 
     candidates = [(width, height)]
     for wh in ((1024, 576), (800, 600), (640, 480)):
@@ -250,8 +293,9 @@ def _open_camera(index: int, width: int, height: int, fps: int,
         codec = _codec_of(cap)
         if measured >= min_fps:
             print(f"[카메라] {_backend_name(be)} {aw}x{ah} {codec} "
-                  f"실측 {measured:.1f}fps ≥ 최소 {min_fps:.0f} — 채택")
+                  f"실측 {measured:.1f}fps ≥ 최소 {min_fps:.0f} — 채택·저장")
             _MODE_CACHE[index] = (aw, ah)
+            _save_mode_cache(index, (aw, ah))
             return cap
         print(f"[카메라] {_backend_name(be)} {aw}x{ah} {codec} "
               f"실측 {measured:.1f}fps < 최소 {min_fps:.0f} — 낮은 해상도 시도")
@@ -263,8 +307,9 @@ def _open_camera(index: int, width: int, height: int, fps: int,
         cap = _try_open(index, be, best_mode[0], best_mode[1], fps)
         if cap is not None and _probe(cap):
             print(f"[카메라] 최소 fps 미달 — 가장 빠른 {best_mode[0]}x{best_mode[1]} "
-                  f"({best_fps:.1f}fps) 사용")
+                  f"({best_fps:.1f}fps) 사용·저장")
             _MODE_CACHE[index] = best_mode
+            _save_mode_cache(index, best_mode)
             return cap
         if cap is not None:
             cap.release()
