@@ -79,24 +79,31 @@ class SessionView(QWidget):
     def _tick(self) -> None:
         if self._engine is None or self._source is None:
             return
-        frame = self._source.read()
-        if frame is None:
-            if not self._source.is_open():
-                self._timer.stop()
-            return
-        primary, state = self._engine.process(frame, self._now())
-        ref = get_ref(state.target_pose.name) if state.target_pose else None
-        composed = compose(frame, primary, state, self._pass, ref)
-        self._label.setPixmap(
-            bgr_to_qpixmap(composed).scaled(
-                self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation)
-        )
-        self._cue(state)
-        if state.state == State.DONE and not self._saved:
-            self._saved = True
-            add_record(self._name, state.final_summary or 0.0, state.results,
-                       datetime.datetime.now().isoformat())
+        try:
+            frame = self._source.read()
+            if frame is None:
+                if not self._source.is_open():
+                    self._timer.stop()
+                return
+            primary, state = self._engine.process(frame, self._now())
+            ref = get_ref(state.target_pose.name) if state.target_pose else None
+            composed = compose(frame, primary, state, self._pass, ref)
+            self._label.setPixmap(
+                bgr_to_qpixmap(composed).scaled(
+                    self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation)
+            )
+            self._cue(state)
+            if state.state == State.DONE and not self._saved:
+                self._saved = True
+                add_record(self._name, state.final_summary or 0.0, state.results,
+                           datetime.datetime.now().isoformat())
+                self._home_btn.show()
+        except Exception:
+            # 한 프레임 오류로 앱이 죽지 않도록: 루프 중단하고 로그만
+            import traceback
+            traceback.print_exc()
+            self._timer.stop()
             self._home_btn.show()
 
     # ---- 사운드/음성 큐 (상태 전이 1회성) ----

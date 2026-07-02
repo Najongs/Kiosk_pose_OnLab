@@ -75,21 +75,27 @@ class VersusView(QWidget):
     def _tick(self) -> None:
         if self._estimator is None or self._source is None or self._vs is None:
             return
-        frame = self._source.read()
-        if frame is None:
-            if not self._source.is_open():
-                self._timer.stop()
-            return
-        now = time.monotonic() - self._start
-        poses = self._estimator.estimate(frame)
-        a, b = assign_players(poses)
-        state = self._vs.update(poses, now)
-        composed = compose_versus(frame, a, b, state, self._pass)
-        self._label.setPixmap(bgr_to_qpixmap(composed).scaled(
-            self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation))
-        self._cue(state)
-        if state.state == VState.DONE:
+        try:
+            frame = self._source.read()
+            if frame is None:
+                if not self._source.is_open():
+                    self._timer.stop()
+                return
+            now = time.monotonic() - self._start
+            poses = self._estimator.estimate(frame)
+            a, b = assign_players(poses)
+            state = self._vs.update(poses, now)
+            composed = compose_versus(frame, a, b, state, self._pass)
+            self._label.setPixmap(bgr_to_qpixmap(composed).scaled(
+                self._label.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation))
+            self._cue(state)
+            if state.state == VState.DONE:
+                self._home.show()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self._timer.stop()
             self._home.show()
 
     def _cue(self, state) -> None:

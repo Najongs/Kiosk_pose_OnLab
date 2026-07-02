@@ -57,7 +57,15 @@ class MainWindow(QMainWindow):
             self.home.set_status(f"카메라 오류: {e}")
             return
         self.home.set_status("")
-        self.session.begin(name, cfg, source)
+        try:
+            self.session.begin(name, cfg, source)
+        except Exception as e:
+            try:
+                source.release()
+            except Exception:
+                pass
+            self.home.set_status(f"시작 실패: {e}")
+            return
         self._stack.setCurrentWidget(self.session)
 
     def _start_versus(self) -> None:
@@ -68,7 +76,15 @@ class MainWindow(QMainWindow):
             self.home.set_status(f"카메라 오류: {e}")
             return
         self.home.set_status("")
-        self.versus.begin(cfg, source)
+        try:
+            self.versus.begin(cfg, source)
+        except Exception as e:
+            try:
+                source.release()
+            except Exception:
+                pass
+            self.home.set_status(f"시작 실패: {e}")
+            return
         self._stack.setCurrentWidget(self.versus)
 
     def _go_home(self) -> None:
@@ -80,10 +96,14 @@ class MainWindow(QMainWindow):
         self.home.refresh()
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
-        if e.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
-            if self._stack.currentWidget() is self.session:
+        # Esc: 세션/대결 중이면 홈으로, 홈에서는 종료. (일반 글자키 Q 로는 종료 안 함)
+        if e.key() == Qt.Key.Key_Escape:
+            cur = self._stack.currentWidget()
+            if cur is self.session:
                 self.session._exit()
+            elif cur is self.versus:
+                self.versus._exit()
             else:
                 self.close()
-        elif e.key() == Qt.Key.Key_F:
+        elif e.key() in (Qt.Key.Key_F, Qt.Key.Key_F11):
             self.showNormal() if self.isFullScreen() else self.showFullScreen()

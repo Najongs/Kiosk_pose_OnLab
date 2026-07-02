@@ -49,6 +49,21 @@ def main() -> int:
 
     from ui.main_window import MainWindow
 
+    # PySide6(Qt6)는 슬롯/타이머 콜백의 미처리 예외가 나면 앱을 강제 종료한다.
+    # 훅을 걸어 콘솔+error.log 로 남기고 창이 사라지지 않게 한다.
+    import traceback
+
+    def _excepthook(exctype, value, tb):
+        traceback.print_exception(exctype, value, tb)
+        try:
+            log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "error.log")
+            with open(log, "a", encoding="utf-8") as f:
+                traceback.print_exception(exctype, value, tb, file=f)
+        except Exception:
+            pass
+
+    sys.excepthook = _excepthook
+
     app = QApplication(sys.argv)
     cam_index = int(args.source) if args.source.isdigit() else 0
     # 이미지/폴더 소스는 키오스크처럼 계속 돌도록 기본 반복
