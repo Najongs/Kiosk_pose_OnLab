@@ -22,7 +22,11 @@ def find_character_glb() -> str | None:
 
 
 def create_character_widget(parent=None):
-    """CharacterWidget 생성 시도 — 실패하면 None (호출측 폴백)."""
+    """CharacterWidget 생성 시도 — 실패하면 None (호출측 폴백).
+
+    QQuickWidget 은 일부 Windows 환경에서 반투명 합성이 조용히 실패해
+    아무것도 그리지 않는다. QQuickView + createWindowContainer(네이티브
+    자식 윈도우)는 D3D 스왑체인을 직접 가져 훨씬 안정적이다."""
     glb = find_character_glb()
     if glb is None:
         print(f"[3D 가이드] glb 없음: {_CHAR_DIR}")
@@ -32,28 +36,28 @@ def create_character_widget(parent=None):
         return None
     try:
         from PySide6.QtCore import Qt, QUrl
-        from PySide6.QtQuickWidgets import QQuickWidget
+        from PySide6.QtGui import QColor
+        from PySide6.QtQuick import QQuickView
+        from PySide6.QtWidgets import QWidget
 
-        w = QQuickWidget(parent)
-        w.setResizeMode(QQuickWidget.ResizeMode.SizeRootObjectToView)
-        w.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
-        w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        w.setClearColor(Qt.GlobalColor.transparent)
-        w.rootContext().setContextProperty(
+        view = QQuickView()
+        view.setResizeMode(QQuickView.ResizeMode.SizeRootObjectToView)
+        view.setColor(QColor("#10141f"))
+        view.sceneGraphError.connect(
+            lambda err, msg: print("[3D 가이드] 씬그래프 오류:", msg))
+        view.rootContext().setContextProperty(
             "characterUrl", QUrl.fromLocalFile(glb).toString())
-        w.setSource(QUrl.fromLocalFile(_QML))
-        print(f"[3D 가이드] glb: {os.path.basename(glb)}, QML 상태: {w.status()}")
-        if w.status() == QQuickWidget.Status.Error or w.rootObject() is None:
-            for e in w.errors():
+        view.setSource(QUrl.fromLocalFile(_QML))
+        print(f"[3D 가이드] glb: {os.path.basename(glb)}, QML 상태: {view.status()}")
+        if view.status() == QQuickView.Status.Error or view.rootObject() is None:
+            for e in view.errors():
                 print("[3D 가이드] QML 오류:", e.toString())
-            w.deleteLater()
+            view.deleteLater()
             return None
-        # 로딩이 늦게 실패하는 경우도 콘솔에 남긴다
-        w.statusChanged.connect(lambda s: [
-            print("[3D 가이드] QML 오류:", e.toString()) for e in w.errors()
-        ] if s == QQuickWidget.Status.Error else None)
-        w.hide()
-        return w
+        container = QWidget.createWindowContainer(view, parent)
+        container.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        container.hide()
+        return container
     except Exception as e:
         print("[3D 가이드] 초기화 실패 — 기본 캐릭터 사용:", e)
         return None

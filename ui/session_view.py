@@ -219,6 +219,8 @@ class SessionView(QWidget):
                 if not self._char3d.isVisible():
                     self._char3d.show()
                     self._char3d.raise_()
+                    g = self._char3d.geometry()
+                    print(f"[3D 가이드] 표시 @ {g.x()},{g.y()} {g.width()}x{g.height()}")
             else:
                 self._char3d.hide()
         if state is None:  # 모델 로딩 중 미리보기 프레임
