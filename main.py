@@ -70,6 +70,21 @@ def main() -> int:
     QCoreApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
     app = QApplication(sys.argv)
+
+    # 앱 아이콘 (창 + 작업표시줄)
+    from PySide6.QtGui import QIcon
+    icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "assets", "icon.png")
+    if os.path.isfile(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+    if sys.platform == "win32":
+        # 파이썬 실행이라도 작업표시줄에 우리 아이콘이 뜨도록 앱 ID 를 분리
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "onlab.kiosk.pose")
+        except Exception:
+            pass
     cam_index = int(args.source) if args.source.isdigit() else 0
     # 이미지/폴더 소스는 키오스크처럼 계속 돌도록 기본 반복
     factory = make_source_factory(args.source, settings, loop=True)
