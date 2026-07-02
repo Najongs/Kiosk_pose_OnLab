@@ -5,11 +5,12 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QScrollArea, QVBoxLayout,
-    QWidget,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton,
+    QScrollArea, QVBoxLayout, QWidget,
 )
 
 from core.appconfig import load_app_config, reset_app_config, save_app_config
+from core.courses import load_courses, new_course_id, save_courses
 from core.leaderboard import clear as clear_leaderboard
 from core.pose_def import list_poses, load_pose
 from core.refs import clear_ref, has_ref, normalize_pose, set_ref
@@ -62,6 +63,12 @@ class AdminDialog(QDialog):
         self.fps_chk = QCheckBox("FPS 표시 (진단용)")
         self.fps_chk.setChecked(bool(cfg.get("showFps", False)))
 
+        self.guide_sel = QComboBox()
+        self.guide_sel.addItem("예시 사진", "image")
+        self.guide_sel.addItem("움직이는 캐릭터 (참조 캡처/임포트 필요)", "character")
+        if cfg.get("guideStyle") == "character":
+            self.guide_sel.setCurrentIndex(1)
+
         form.addRow("합격 정확도(%)", self.pass_spin)
         form.addRow("카운트다운(초)", self.count_spin)
         form.addRow("결과 표시(초)", self.result_spin)
@@ -69,6 +76,7 @@ class AdminDialog(QDialog):
         hrow.addWidget(self.hold_chk)
         hrow.addWidget(self.hold_spin)
         form.addRow(_wrap(hrow))
+        form.addRow("가이드 표시", self.guide_sel)
         form.addRow(self.sound_chk)
         form.addRow(self.voice_chk)
         form.addRow(self.bgm_chk)
@@ -94,6 +102,26 @@ class AdminDialog(QDialog):
             row.addStretch()
             row.addWidget(tag)
             root.addWidget(_wrap(row))
+
+        root.addWidget(_h2("코스 관리"))
+        self.course_list = QListWidget()
+        self.course_list.setFixedHeight(170)
+        self.course_list.itemDoubleClicked.connect(lambda _: self._edit_course())
+        root.addWidget(self.course_list)
+        crow = QHBoxLayout()
+        c_new = QPushButton("+ 새 코스")
+        c_new.clicked.connect(self._new_course)
+        c_edit = QPushButton("편집")
+        c_edit.clicked.connect(self._edit_course)
+        c_del = QPushButton("삭제")
+        c_del.setObjectName("danger")
+        c_del.clicked.connect(self._del_course)
+        crow.addWidget(c_new)
+        crow.addWidget(c_edit)
+        crow.addWidget(c_del)
+        crow.addStretch()
+        root.addWidget(_wrap(crow))
+        self._reload_courses()
 
         root.addWidget(_h2("목표 자세 참조 캡처"))
         caprow = QHBoxLayout()
@@ -138,6 +166,7 @@ class AdminDialog(QDialog):
             "voice": self.voice_chk.isChecked(),
             "bgm": self.bgm_chk.isChecked(),
             "showFps": self.fps_chk.isChecked(),
+            "guideStyle": self.guide_sel.currentData(),
         })
         if pose_set:
             cfg["poseSet"] = pose_set
@@ -170,6 +199,167 @@ class AdminDialog(QDialog):
         display = self.cap_sel.currentText()
         dlg = CaptureDialog(pose, display, self._camera_index, self)
         dlg.exec()
+
+    # ---- 코스 관리 ----
+    def _reload_courses(self) -> None:
+        self.course_list.clear()
+        for c in load_courses():
+            self.course_list.addItem(
+                f"{c['name']}  ·  {c.get('difficulty','')}  ·  {len(c['poses'])}개 자세")
+
+    def _new_course(self) -> None:
+        courses = load_courses()
+        dlg = CourseDialog(self._defs, None, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            c = dlg.result_course()
+            c["id"] = new_course_id(courses)
+            courses.append(c)
+            save_courses(courses)
+            self._reload_courses()
+
+    def _edit_course(self) -> None:
+        i = self.course_list.currentRow()
+        courses = load_courses()
+        if not (0 <= i < len(courses)):
+            return
+        dlg = CourseDialog(self._defs, courses[i], self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            c = dlg.result_course()
+            c["id"] = courses[i].get("id", new_course_id(courses))
+            courses[i] = c
+            save_courses(courses)
+            self._reload_courses()
+
+    def _del_course(self) -> None:
+        i = self.course_list.currentRow()
+        courses = load_courses()
+        if not (0 <= i < len(courses)):
+            return
+        if QMessageBox.question(
+                self, "확인", f"'{courses[i]['name']}' 코스를 삭제할까요?") \
+                == QMessageBox.StandardButton.Yes:
+            del courses[i]
+            save_courses(courses)
+            self._reload_courses()
+
+
+class CourseDialog(QDialog):
+    """코스 만들기/편집: 이름·난이도·설명 + 자세 구성(순서 포함)."""
+
+    def __init__(self, defs, course: dict | None = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("코스 편집" if course else "새 코스")
+        self.resize(640, 620)
+        self._names = {d.name: d.display_name for d in defs}
+
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.name_edit = QLineEdit(course["name"] if course else "")
+        self.name_edit.setPlaceholderText("예: 아침 스트레칭")
+        self.diff_sel = QComboBox()
+        self.diff_sel.addItems(["초급", "중급", "고급"])
+        if course and course.get("difficulty") in ("초급", "중급", "고급"):
+            self.diff_sel.setCurrentText(course["difficulty"])
+        self.desc_edit = QLineEdit(course.get("desc", "") if course else "")
+        self.desc_edit.setPlaceholderText("코스 설명 (선택)")
+        form.addRow("이름", self.name_edit)
+        form.addRow("난이도", self.diff_sel)
+        form.addRow("설명", self.desc_edit)
+        root.addLayout(form)
+
+        root.addWidget(_h2("자세 구성 (오른쪽 목록의 순서대로 진행)"))
+        lists = QHBoxLayout()
+        left_col = QVBoxLayout()
+        left_col.addWidget(QLabel("전체 자세"))
+        self.avail = QListWidget()
+        for d in defs:
+            self.avail.addItem(d.display_name)
+            self.avail.item(self.avail.count() - 1).setData(
+                Qt.ItemDataRole.UserRole, d.name)
+        self.avail.itemDoubleClicked.connect(lambda _: self._add())
+        left_col.addWidget(self.avail)
+        lists.addLayout(left_col, 1)
+
+        btns = QVBoxLayout()
+        btns.addStretch()
+        for label, fn in (("추가 →", self._add), ("← 제거", self._remove),
+                          ("▲ 위로", self._up), ("▼ 아래로", self._down)):
+            b = QPushButton(label)
+            b.clicked.connect(fn)
+            btns.addWidget(b)
+        btns.addStretch()
+        lists.addLayout(btns)
+
+        right_col = QVBoxLayout()
+        right_col.addWidget(QLabel("이 코스의 자세"))
+        self.sel = QListWidget()
+        for slug in (course["poses"] if course else []):
+            if slug in self._names:
+                self.sel.addItem(self._names[slug])
+                self.sel.item(self.sel.count() - 1).setData(
+                    Qt.ItemDataRole.UserRole, slug)
+        self.sel.itemDoubleClicked.connect(lambda _: self._remove())
+        right_col.addWidget(self.sel)
+        lists.addLayout(right_col, 1)
+        root.addLayout(lists, 1)
+
+        foot = QHBoxLayout()
+        cancel = QPushButton("취소")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("저장")
+        save.setObjectName("primary")
+        save.clicked.connect(self._save)
+        foot.addStretch()
+        foot.addWidget(cancel)
+        foot.addWidget(save)
+        root.addLayout(foot)
+
+    def _add(self) -> None:
+        it = self.avail.currentItem()
+        if it is None:
+            return
+        slug = it.data(Qt.ItemDataRole.UserRole)
+        self.sel.addItem(it.text())
+        self.sel.item(self.sel.count() - 1).setData(Qt.ItemDataRole.UserRole, slug)
+
+    def _remove(self) -> None:
+        row = self.sel.currentRow()
+        if row >= 0:
+            self.sel.takeItem(row)
+
+    def _move(self, d: int) -> None:
+        row = self.sel.currentRow()
+        to = row + d
+        if row < 0 or not (0 <= to < self.sel.count()):
+            return
+        it = self.sel.takeItem(row)
+        self.sel.insertItem(to, it)
+        self.sel.setCurrentRow(to)
+
+    def _up(self) -> None:
+        self._move(-1)
+
+    def _down(self) -> None:
+        self._move(1)
+
+    def _save(self) -> None:
+        if not self.name_edit.text().strip():
+            QMessageBox.warning(self, "확인", "코스 이름을 입력해 주세요.")
+            return
+        if self.sel.count() == 0:
+            QMessageBox.warning(self, "확인", "자세를 하나 이상 추가해 주세요.")
+            return
+        self.accept()
+
+    def result_course(self) -> dict:
+        poses = [self.sel.item(i).data(Qt.ItemDataRole.UserRole)
+                 for i in range(self.sel.count())]
+        return {
+            "name": self.name_edit.text().strip(),
+            "difficulty": self.diff_sel.currentText(),
+            "desc": self.desc_edit.text().strip(),
+            "poses": poses,
+        }
 
 
 class CaptureDialog(QDialog):

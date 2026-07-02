@@ -17,11 +17,13 @@ from core.drawing import (
     TextItem,
     draw_skeleton,
     draw_texts,
+    ellipsize,
     gauge_bar,
     panel,
+    text_width,
     translucent_rect,
 )
-from core.pose_estimator import SKELETON_EDGES, PersonPose
+from core.pose_estimator import PersonPose
 from core.refs import REF_VIS
 from core.session import SessionState, State
 from core.versus import VersusState, VState
@@ -95,11 +97,75 @@ def _acc_colors(accuracy: float, pass_accuracy: float):
     return (60, 80, 235), (255, 140, 140)
 
 
+# 캐릭터 기본(서있는) 자세 — 가이드 박스 정규화 좌표
+_BASE_STAND = {
+    0: (0.50, 0.06),
+    11: (0.38, 0.22), 12: (0.62, 0.22),
+    13: (0.34, 0.40), 14: (0.66, 0.40),
+    15: (0.32, 0.56), 16: (0.68, 0.56),
+    23: (0.43, 0.52), 24: (0.57, 0.52),
+    25: (0.42, 0.74), 26: (0.58, 0.74),
+    27: (0.41, 0.94), 28: (0.59, 0.94),
+}
+_CHAR_LIMBS = [(11, 13), (13, 15), (12, 14), (14, 16),
+               (23, 25), (25, 27), (24, 26), (26, 28)]
+CHAR_CYCLE_SECONDS = 3.2  # 서있기→목표자세→유지→복귀 한 사이클
+
+
+def _draw_character(frame: np.ndarray, ref: list[list[float]],
+                    ix: int, iy: int, iw: int, ih: int,
+                    anim_t: float | None) -> None:
+    """참조 스켈레톤을 향해 반복 트윈하는 미니 캐릭터 (머리+몸통+팔다리)."""
+    if anim_t is None:
+        t = 1.0
+    else:
+        cyc = (anim_t % CHAR_CYCLE_SECONDS) / CHAR_CYCLE_SECONDS
+        if cyc < 0.35:            # 목표 자세로 이동
+            u = cyc / 0.35
+        elif cyc < 0.75:          # 유지
+            u = 1.0
+        else:                     # 복귀
+            u = 1.0 - (cyc - 0.75) / 0.25
+        t = u * u * (3 - 2 * u)   # smoothstep
+
+    def pt(i: int) -> tuple[int, int]:
+        bx, by = _BASE_STAND[i]
+        if i < len(ref) and ref[i][2] >= REF_VIS:
+            x = bx + (ref[i][0] - bx) * t
+            y = by + (ref[i][1] - by) * t
+        else:  # 참조에 없는 관절은 기본 자세 유지
+            x, y = bx, by
+        return int(ix + x * iw), int(iy + y * ih)
+
+    lw = max(3, ih // 34)
+    body = (127, 231, 160)  # 민트 (BGR)
+    dark = (64, 118, 84)
+    p11, p12, p23, p24 = pt(11), pt(12), pt(23), pt(24)
+    torso = np.array([p11, p12, p24, p23], dtype=np.int32)
+    cv2.fillPoly(frame, [torso], (52, 96, 66), cv2.LINE_AA)
+    cv2.polylines(frame, [torso], True, body, 2, cv2.LINE_AA)
+    for a, b in _CHAR_LIMBS:
+        cv2.line(frame, pt(a), pt(b), dark, lw + 3, cv2.LINE_AA)
+    for a, b in _CHAR_LIMBS:
+        cv2.line(frame, pt(a), pt(b), body, lw, cv2.LINE_AA)
+    for i in (13, 14, 15, 16, 25, 26, 27, 28):
+        cv2.circle(frame, pt(i), max(2, lw - 1), (235, 255, 240), -1, cv2.LINE_AA)
+    hx, hy = pt(0)
+    neck = ((p11[0] + p12[0]) // 2, (p11[1] + p12[1]) // 2)
+    cv2.line(frame, (hx, hy), neck, dark, lw + 3, cv2.LINE_AA)
+    cv2.line(frame, (hx, hy), neck, body, lw, cv2.LINE_AA)
+    r = max(5, int(ih * 0.055))
+    cv2.circle(frame, (hx, hy), r, body, -1, cv2.LINE_AA)
+    cv2.circle(frame, (hx, hy), r, dark, 2, cv2.LINE_AA)
+
+
 def draw_guide(frame: np.ndarray, pose_name: str,
                ref_norm: list[list[float]] | None,
-               anim_t: float | None = None) -> None:
+               anim_t: float | None = None,
+               style: str = "image") -> None:
     """목표 자세 예시를 화면 왼쪽 박스에 그린다.
-    우선순위: 예시 이미지(config/examples/) > 참조 스켈레톤(관리자 캡처) > 빈 박스.
+    style='image'(기본): 예시 이미지 > 움직이는 캐릭터(참조) > 빈 박스.
+    style='character': 참조가 있으면 캐릭터 우선.
     예시가 여러 장이면(연속동작) anim_t 기준으로 주기 순환 + 단계 점 표시."""
     h, w = frame.shape[:2]
     bw = int(w * 0.18)
@@ -116,7 +182,10 @@ def draw_guide(frame: np.ndarray, pose_name: str,
     iw, ih = bw - pad * 2, bh - int(bh * 0.16) - pad
 
     imgs = example_images(pose_name)
-    if imgs:
+    use_char = bool(ref_norm) and (style == "character" or not imgs)
+    if use_char:
+        _draw_character(frame, ref_norm, ix, iy, iw, ih, anim_t)
+    elif imgs:
         idx = 0
         if len(imgs) > 1 and anim_t is not None:
             idx = int(anim_t / EXAMPLE_STEP_SECONDS) % len(imgs)
@@ -129,22 +198,40 @@ def draw_guide(frame: np.ndarray, pose_name: str,
                 c = (160, 231, 127) if i == idx else (110, 116, 138)
                 cv2.circle(frame, (cx0 + i * 18, cy), 4 if i == idx else 3, c, -1,
                            cv2.LINE_AA)
-    elif ref_norm:
-        px = lambda nx: int(ix + nx * iw)  # noqa: E731
-        py = lambda ny: int(iy + ny * ih)  # noqa: E731
-        for a, b in SKELETON_EDGES:
-            if ref_norm[a][2] >= REF_VIS and ref_norm[b][2] >= REF_VIS:
-                cv2.line(frame, (px(ref_norm[a][0]), py(ref_norm[a][1])),
-                         (px(ref_norm[b][0]), py(ref_norm[b][1])), (127, 231, 160), 2, cv2.LINE_AA)
+
+
+def _dots_x0(total: int, w: int) -> int | None:
+    """진행 도트의 시작 x (없으면 None) — 상단바 텍스트 겹침 방지 계산용."""
+    if total < 2 or total > 20:
+        return None
+    return w - 28 - (total - 1) * 20
+
+
+def _msg_pill(frame: np.ndarray, texts: list[TextItem], msg: str, cy: int,
+              size: int, color=(255, 255, 255)) -> None:
+    """텍스트 폭에 맞춘 둥근 필 패널 + 중앙 텍스트. 길면 폰트 축소 후 말줄임."""
+    h, w = frame.shape[:2]
+    s = size
+    max_w = int(w * 0.86)
+    while s > 14 and text_width(msg, s) > max_w:
+        s -= 2
+    msg = ellipsize(msg, s, max_w)
+    tw = text_width(msg, s)
+    pad_x = int(s * 0.9)
+    pad_y = int(s * 0.55)
+    y1, y2 = cy - s // 2 - pad_y, cy + s // 2 + pad_y
+    panel(frame, w // 2 - tw // 2 - pad_x, y1, w // 2 + tw // 2 + pad_x, y2,
+          radius=(y2 - y1) // 2, color=(14, 16, 26), alpha=0.55)
+    texts.append(TextItem(msg, (w // 2, cy), s, color, anchor="mm"))
 
 
 def _progress_dots(frame: np.ndarray, index: int, total: int, w: int, h: int) -> None:
     """상단바 우측: 자세 진행 도트 (완료=액센트, 현재=밝게, 남음=어둡게)."""
-    if total < 2 or total > 20:
+    x0 = _dots_x0(total, w)
+    if x0 is None:
         return
     gap = 20
     cy = int(h * 0.055)
-    x0 = w - 28 - (total - 1) * gap
     for i in range(total):
         cx = x0 + i * gap
         if i < index:
@@ -159,7 +246,8 @@ def _progress_dots(frame: np.ndarray, index: int, total: int, w: int, h: int) ->
 def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
             pass_accuracy: float = 85.0,
             ref_norm: list[list[float]] | None = None,
-            anim_t: float | None = None) -> np.ndarray:
+            anim_t: float | None = None,
+            guide_style: str = "image") -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
 
@@ -167,12 +255,14 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         draw_skeleton(frame, primary)
 
     if state.target_pose is not None and state.state in (State.COUNTDOWN, State.SCORING):
-        draw_guide(frame, state.target_pose.name, ref_norm, anim_t)
+        draw_guide(frame, state.target_pose.name, ref_norm, anim_t, guide_style)
         # 박스 상단 라벨 (좌측). 예시 이미지도 참조도 없으면 안내 문구
         texts.append(TextItem("따라해 보세요", (int(w * 0.02 + w * 0.09), int(h * 0.335)),
                               max(15, h // 42), (200, 220, 255), anchor="mm"))
         if not example_images(state.target_pose.name) and not ref_norm:
-            texts.append(TextItem("예시 준비 중", (int(w * 0.02 + w * 0.09), int(h * 0.62)),
+            # 박스 세로 중앙에 (테두리에 걸치지 않게)
+            box_cy = int(h * 0.30 + int(w * 0.18) * 1.3 * 0.55)
+            texts.append(TextItem("예시 준비 중", (int(w * 0.02 + w * 0.09), box_cy),
                                   max(13, h // 50), (150, 160, 180), anchor="mm"))
 
     # 상단 진행 바(자세 n/N + 자세명 + 진행 도트)
@@ -180,15 +270,21 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
         cv2.line(frame, (0, int(h * 0.11)), (w, int(h * 0.11)), (72, 120, 96), 1,
                  cv2.LINE_AA)
+        small = max(20, h // 28)
+        big = max(26, h // 20)
         n_txt = f"자세 {state.pose_index + 1}/{state.pose_total}"
         if state.combo >= 2:
             n_txt += f"  ·  콤보 x{state.combo}"
-        texts.append(TextItem(n_txt, (24, int(h * 0.055)), max(20, h // 28),
+        texts.append(TextItem(n_txt, (24, int(h * 0.055)), small,
                               (255, 190, 110) if state.combo >= 2 else (200, 220, 255),
                               anchor="lm"))
-        texts.append(TextItem(state.target_pose.display_name,
-                              (int(w * 0.28), int(h * 0.055)), max(26, h // 20),
-                              (255, 255, 255), anchor="lm"))
+        # 자세명: 좌측 텍스트/우측 진행 도트와 겹치지 않게 배치 + 말줄임
+        name_x = max(int(w * 0.28), 24 + text_width(n_txt, small) + 32)
+        dx0 = _dots_x0(state.pose_total, w)
+        name_max = (dx0 - 26 if dx0 is not None else w - 40) - name_x
+        texts.append(TextItem(
+            ellipsize(state.target_pose.display_name, big, max(80, name_max)),
+            (name_x, int(h * 0.055)), big, (255, 255, 255), anchor="lm"))
         _progress_dots(frame, state.pose_index, state.pose_total, w, h)
 
     if state.state == State.IDLE:
@@ -208,10 +304,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                     (160, 231, 127), 6, cv2.LINE_AA)
         texts.append(TextItem(str(n), (w // 2, h // 2), max(90, h // 4),
                               (255, 255, 255), anchor="mm", stroke=6))
-        panel(frame, int(w * 0.30), int(h * 0.765), int(w * 0.70), int(h * 0.835),
-              radius=int(h * 0.035), color=(14, 16, 26), alpha=0.55)
-        texts.append(TextItem(state.message, (w // 2, int(h * 0.80)),
-                              max(24, h // 22), (220, 235, 255), anchor="mm"))
+        _msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22),
+                  (220, 235, 255))
 
     elif state.state == State.SCORING:
         acc = state.accuracy
@@ -236,10 +330,7 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         gauge_bar(frame, hx, hy, hw, hh, state.hold_progress, fg=(230, 180, 40))
         texts.append(TextItem("유지", (hx - 12, hy + hh // 2), max(18, h // 34),
                               (255, 235, 180), anchor="rm"))
-        panel(frame, int(w * 0.26), int(h * 0.765), int(w * 0.74), int(h * 0.835),
-              radius=int(h * 0.035), color=(14, 16, 26), alpha=0.55)
-        texts.append(TextItem(state.message, (w // 2, int(h * 0.80)),
-                              max(22, h // 24), (255, 255, 255), anchor="mm"))
+        _msg_pill(frame, texts, state.message, int(h * 0.80), max(22, h // 24))
 
     elif state.state == State.RESULT:
         panel(frame, int(w * 0.14), int(h * 0.30), int(w * 0.86), int(h * 0.74),
@@ -249,19 +340,26 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         grade, grade_rgb = _grade_of(score)
         texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),
                               (120, 255, 140), anchor="mm"))
-        texts.append(TextItem(f"{score:.0f}점", (w // 2, int(h * 0.55)),
-                              max(70, h // 6), (255, 255, 255), anchor="mm", stroke=5))
-        texts.append(TextItem(grade, (int(w * 0.72), int(h * 0.52)),
+        score_fs = max(70, h // 6)
+        score_txt = f"{score:.0f}점"
+        texts.append(TextItem(score_txt, (w // 2, int(h * 0.55)),
+                              score_fs, (255, 255, 255), anchor="mm", stroke=5))
+        # 점수 폭을 재서 좌(콤보)/우(등급)를 겹치지 않게 배치
+        half = text_width(score_txt, score_fs) // 2
+        texts.append(TextItem(grade, (w // 2 + half + int(w * 0.05), int(h * 0.52)),
                               max(60, h // 8), grade_rgb, anchor="mm", stroke=5))
         if state.combo >= 2:
             texts.append(TextItem(f"콤보 x{state.combo}  +{state.combo_bonus:.0f}점",
-                                  (int(w * 0.28), int(h * 0.52)), max(22, h // 26),
-                                  (255, 190, 110), anchor="mm", stroke=3))
+                                  (w // 2 - half - int(w * 0.02), int(h * 0.53)),
+                                  max(22, h // 26), (255, 190, 110),
+                                  anchor="rm", stroke=3))
         if state.result_remaining is not None:
             n = int(np.ceil(state.result_remaining))
             nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"
                    if state.next_pose_name else f"{n}초 뒤 결과 화면")
-            texts.append(TextItem(nxt, (w // 2, int(h * 0.69)), max(20, h // 26),
+            fs2 = max(20, h // 26)
+            texts.append(TextItem(ellipsize(nxt, fs2, int(w * 0.66)),
+                                  (w // 2, int(h * 0.69)), fs2,
                                   (220, 235, 255), anchor="mm"))
 
     elif state.state == State.DONE:
@@ -287,7 +385,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                                       (int(w * 0.22), y), max(14, fs - 3),
                                       (150, 160, 180), anchor="lm"))
                 break
-            texts.append(TextItem(r["name"], (int(w * 0.22), y), fs,
+            texts.append(TextItem(ellipsize(r["name"], fs, int(w * 0.36)),
+                                  (int(w * 0.22), y), fs,
                                   (235, 235, 235), anchor="lm"))
             texts.append(TextItem(f"{r['score']:.0f}점  {r.get('grade','')}",
                                   (int(w * 0.62), y), fs, (200, 230, 255), anchor="lm"))
@@ -331,9 +430,10 @@ def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
         draw_skeleton(frame, p2pose, color=P2_BGR)
 
     if state.target_pose is not None:
-        texts.append(TextItem(
-            f"자세 {state.pose_index + 1}/{state.pose_total} · {state.target_pose.display_name}",
-            (w // 2, int(h * 0.06)), max(20, h // 24), (255, 255, 255), anchor="mm"))
+        fs_t = max(20, h // 24)
+        title = f"자세 {state.pose_index + 1}/{state.pose_total} · {state.target_pose.display_name}"
+        texts.append(TextItem(ellipsize(title, fs_t, int(w * 0.72)),
+                              (w // 2, int(h * 0.06)), fs_t, (255, 255, 255), anchor="mm"))
         if state.round_remaining is not None:
             texts.append(TextItem(f"{state.round_remaining:.0f}s", (w // 2, int(h * 0.12)),
                                   max(16, h // 34), (255, 210, 127), anchor="mm"))

@@ -174,6 +174,24 @@ def gauge_bar(frame: np.ndarray, x, y, w, h, ratio: float,
     _rounded_shape(frame, x, y, x + w, y + h, r, (150, 158, 178), 1)
 
 
+def text_width(text: str, size: int) -> int:
+    """해당 폰트 크기에서의 렌더 폭(px). 겹침 없는 배치 계산용."""
+    font = get_font(size)
+    try:
+        return int(font.getlength(text))
+    except AttributeError:  # 비트맵 폴백 폰트
+        return int(size * 0.62 * len(text))
+
+
+def ellipsize(text: str, size: int, max_w: int) -> str:
+    """max_w 를 넘으면 말줄임표로 자른다."""
+    if text_width(text, size) <= max_w:
+        return text
+    while text and text_width(text + "…", size) > max_w:
+        text = text[:-1]
+    return text + "…"
+
+
 @dataclass
 class TextItem:
     text: str

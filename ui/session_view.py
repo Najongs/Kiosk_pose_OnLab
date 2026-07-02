@@ -90,6 +90,7 @@ class SessionView(QWidget):
         pass_acc = self._pass
         start = self._start
         show_fps = bool(app_config.get("showFps", False))
+        guide_style = str(app_config.get("guideStyle", "image"))
         disp_ts: collections.deque = collections.deque(maxlen=40)
         infer_ts: collections.deque = collections.deque(maxlen=20)
         holder: dict = {}
@@ -125,7 +126,8 @@ class SessionView(QWidget):
             if disp.shape[:2] != frame.shape[:2] and primary is not None:
                 primary = primary.scaled(disp.shape[1] / frame.shape[1],
                                          disp.shape[0] / frame.shape[0])
-            composed = compose(disp, primary, state, pass_acc, ref, anim_t=now)
+            composed = compose(disp, primary, state, pass_acc, ref, anim_t=now,
+                               guide_style=guide_style)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)
