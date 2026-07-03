@@ -42,6 +42,7 @@ class ReactionState:
     false_start: bool = False
     false_starts: int = 0
     timed_out: bool = False   # 직전 라운드가 무반응 시간 초과였는지
+    signal_age: float | None = None  # 신호가 켜진 뒤 경과(초) — 확산 링 연출용
     score: float | None = None
 
 
@@ -137,7 +138,8 @@ class ReactionGame:
             if self._signal_at is not None and now >= self._signal_at:
                 self.state = RState.SIGNAL
                 self._signal_shown = now
-                return self._snap("지금! 손을 드세요!", signal_on=True)
+                return self._snap("지금! 손을 드세요!", signal_on=True,
+                                  signal_age=0.0)
             return self._snap("잠깐… 기다리세요")
 
         if self.state == RState.SIGNAL:
@@ -150,7 +152,8 @@ class ReactionGame:
             if elapsed >= self.REACT_TIMEOUT:  # 무반응 — 상한 기록 후 진행
                 self._record(self.REACT_TIMEOUT * 1000.0, now, timeout=True)
                 return self._snap("시간 초과!", signal_on=False)
-            return self._snap("지금! 손을 드세요!", signal_on=True)
+            return self._snap("지금! 손을 드세요!", signal_on=True,
+                              signal_age=elapsed)
 
         if self.state == RState.REST:
             if self._deadline is not None and now >= self._deadline:

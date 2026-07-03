@@ -7,10 +7,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout,
-    QWidget,
+    QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel,
+    QLineEdit, QListWidget, QListWidgetItem, QPushButton, QScrollArea,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from core.courses import load_courses
@@ -18,6 +19,18 @@ from core.leaderboard import top_n
 from ui.game_registry import BOARD_TABS, REGISTRY
 
 _DIFF_COLOR = {"초급": "#2ee6a6", "중급": "#ffdc40", "고급": "#ff5a6a"}
+
+
+def _glow(widget, color: str, blur: int = 28, alpha: int = 120,
+          dy: int = 4) -> None:
+    """위젯 뒤에 액센트색 네온 글로우를 깐다 (QSS 로는 불가한 연출)."""
+    eff = QGraphicsDropShadowEffect(widget)
+    c = QColor(color)
+    c.setAlpha(alpha)
+    eff.setBlurRadius(blur)
+    eff.setOffset(0, dy)
+    eff.setColor(c)
+    widget.setGraphicsEffect(eff)
 
 
 class _Card(QFrame):
@@ -57,12 +70,16 @@ class _GameCard(_Card):
 
     def __init__(self, title: str, subtitle: str, emoji: str, accent: str):
         super().__init__(accent)
+        _glow(self, accent, blur=26, alpha=60, dy=6)
         h = QHBoxLayout(self)
         h.setContentsMargins(18, 14, 16, 14)
         h.setSpacing(14)
         icon = QLabel(emoji)
-        icon.setStyleSheet("font-size:42px;")
-        icon.setFixedWidth(60)
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon.setFixedSize(64, 64)
+        icon.setStyleSheet(
+            f"font-size:34px; background:{accent}1e; border-radius:32px;"
+            f"border:1px solid {accent}55;")
         h.addWidget(icon)
         v = QVBoxLayout()
         v.setSpacing(6)
@@ -75,6 +92,9 @@ class _GameCard(_Card):
         v.addWidget(desc)
         h.addLayout(v)
         h.addStretch()
+        play = QLabel("▶")
+        play.setStyleSheet(f"color:{accent}; font-size:22px; font-weight:900;")
+        h.addWidget(play)
 
 
 class _CourseCard(_Card):
@@ -144,6 +164,7 @@ class HomeWidget(QWidget):
         title = QLabel("OnLab")
         title.setStyleSheet("font-size:92px; font-weight:900; color:#2ee6a6;"
                             "letter-spacing:2px;")
+        _glow(title, "#2ee6a6", blur=44, alpha=150, dy=0)
         sub = QLabel("AI 체험 게임")
         sub.setStyleSheet("font-size:34px; font-weight:800; color:#eef2fb;")
         tag = QLabel("카메라가 몸의 움직임을 인식해요.\n게임을 고르고 점수를 겨뤄보세요.")
@@ -165,6 +186,7 @@ class HomeWidget(QWidget):
         start.setFixedWidth(340)
         start.setToolTip("기본 스트레칭 코스로 바로 시작")
         start.clicked.connect(self._start)
+        _glow(start, "#2ee6a6", blur=36, alpha=110, dy=6)
         left.addSpacing(4)
         left.addWidget(start)
 

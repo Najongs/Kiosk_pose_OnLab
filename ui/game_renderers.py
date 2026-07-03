@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import math
+
 import cv2
 import numpy as np
 
@@ -23,7 +25,17 @@ from core.games.jump import JState, JumpState
 from core.games.pushup import PState, PushupState
 from core.games.reaction import ReactionState, RState
 from core.pose_estimator import PersonPose
-from ui.hud import confetti, grade_of, msg_pill, progress_dots
+from ui.hud import (
+    burst_rays,
+    confetti,
+    corner_brackets,
+    expanding_rings,
+    grade_of,
+    msg_pill,
+    progress_dots,
+    top_accent,
+    vignette,
+)
 
 ACCENT = (160, 231, 127)      # 민트 (BGR)
 GOLD = (60, 200, 255)
@@ -31,11 +43,10 @@ WARN_RGB = (255, 140, 140)
 
 
 def _top_bar(frame: np.ndarray, texts: list[TextItem], title: str,
-             sub: str = "") -> None:
+             sub: str = "", anim_t: float | None = None) -> None:
     h, w = frame.shape[:2]
     translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
-    cv2.line(frame, (0, int(h * 0.11)), (w, int(h * 0.11)), (72, 120, 96), 1,
-             cv2.LINE_AA)
+    top_accent(frame, int(h * 0.11), anim_t)
     big = max(26, h // 20)
     texts.append(TextItem(title, (24, int(h * 0.055)), big,
                           (255, 255, 255), anchor="lm"))
@@ -49,6 +60,8 @@ def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
                 score: float, lines: list[str], anim_t: float | None) -> None:
     h, w = frame.shape[:2]
     translucent_rect(frame, 0, 0, w, h, alpha=0.66)
+    burst_rays(frame, w // 2, int(h * 0.46), anim_t,
+               color=GOLD if score >= 85 else ACCENT)
     confetti(frame, anim_t)
     panel(frame, int(w * 0.16), int(h * 0.22), int(w * 0.84), int(h * 0.80),
           radius=24, color=(12, 14, 24), alpha=0.72,
@@ -75,6 +88,9 @@ def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
                      ) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
+    vignette(frame)
+    if state.state in (RState.WAIT, RState.SIGNAL):
+        corner_brackets(frame, GOLD if state.signal_on else ACCENT, anim_t)
     if primary is not None:
         c = GOLD if state.signal_on else (0, 235, 0)
         draw_skeleton(frame, primary, color=c,
@@ -82,7 +98,8 @@ def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
                       else (0, 160, 255))
 
     cur = min(state.round_index + 1, state.round_total)
-    _top_bar(frame, texts, "반응속도 테스트", f"라운드 {cur}/{state.round_total}")
+    _top_bar(frame, texts, "반응속도 테스트", f"라운드 {cur}/{state.round_total}",
+             anim_t)
     progress_dots(frame, state.round_index, state.round_total, w, h)
     if state.best_ms is not None and state.state != RState.DONE:
         texts.append(TextItem(f"최고 {state.best_ms:.0f}ms",
@@ -90,14 +107,30 @@ def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
                               (255, 235, 180), anchor="lm"))
 
     if state.state == RState.SIGNAL:
-        # 화면 테두리 플래시 + 큰 신호 텍스트
+        # 확산 링 + 화면 테두리 플래시 + 큰 신호 텍스트 (뜨는 순간 팝)
+        if state.signal_age is not None:
+            expanding_rings(frame, w // 2, int(h * 0.42), state.signal_age,
+                            color=GOLD)
         t = max(6, h // 40)
         cv2.rectangle(frame, (t // 2, t // 2), (w - t // 2, h - t // 2),
                       GOLD, t, cv2.LINE_AA)
-        texts.append(TextItem("지금!", (w // 2, int(h * 0.42)), max(90, h // 5),
+        pop = 1.0
+        if state.signal_age is not None and state.signal_age < 0.25:
+            pop = 1.35 - 1.4 * state.signal_age  # 크게 떴다가 빠르게 안착
+        texts.append(TextItem("지금!", (w // 2, int(h * 0.42)),
+                              int(max(90, h // 5) * pop),
                               (255, 230, 90), anchor="mm", stroke=6))
         msg_pill(frame, texts, "손을 번쩍 드세요!", int(h * 0.66),
                  max(26, h // 20))
+    elif state.state == RState.WAIT:
+        # 긴장 유도: 화면을 살짝 어둡게 + 숨쉬는 대기 점
+        translucent_rect(frame, 0, 0, w, h, color=(8, 9, 14), alpha=0.25)
+        if anim_t is not None:
+            k = int(anim_t * 2.5) % 3 + 1
+            texts.append(TextItem("●" * k, (w // 2, int(h * 0.42)),
+                                  max(30, h // 18), (150, 165, 195),
+                                  anchor="mm"))
+        msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22))
     elif state.state == RState.REST and (state.false_start or state.timed_out):
         msg_pill(frame, texts, state.message, int(h * 0.48), max(30, h // 16),
                  WARN_RGB)
@@ -125,12 +158,15 @@ def compose_jump(frame: np.ndarray, primary: PersonPose | None,
                  state: JumpState, anim_t: float | None = None) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
+    vignette(frame)
+    if state.state in (JState.READY, JState.JUMP):
+        corner_brackets(frame, ACCENT, anim_t)
     if primary is not None:
         draw_skeleton(frame, primary, color=(0, 235, 0),
                       joint_color=(0, 160, 255))
 
     cur = min(state.attempt_index + 1, state.attempt_total)
-    _top_bar(frame, texts, "높이뛰기", f"시도 {cur}/{state.attempt_total}")
+    _top_bar(frame, texts, "높이뛰기", f"시도 {cur}/{state.attempt_total}", anim_t)
     progress_dots(frame, state.attempt_index, state.attempt_total, w, h)
 
     # 기준선(어둡게) + 목표선(액센트, '공' 표시) — 게임 좌표는 표시 프레임 기준
@@ -142,12 +178,35 @@ def compose_jump(frame: np.ndarray, primary: PersonPose | None,
     if state.target_line_y is not None and state.state in (
             JState.READY, JState.JUMP, JState.REST):
         yt = int(state.target_line_y)
-        cv2.line(frame, (0, yt), (w, yt), ACCENT, 3, cv2.LINE_AA)
+        # 목표선 호흡 펄스 + 매달린 공이 살짝 까딱거림
+        pulse = 0.5 + 0.5 * math.sin((anim_t or 0) * 3.0)
+        line_c = tuple(int(c * (0.7 + 0.3 * pulse)) for c in ACCENT)
+        cv2.line(frame, (0, yt), (w, yt), line_c, 3, cv2.LINE_AA)
         r = max(10, h // 40)
-        cv2.circle(frame, (w // 2, yt - r), r, (80, 200, 255), -1, cv2.LINE_AA)
-        cv2.circle(frame, (w // 2, yt - r), r, (30, 120, 200), 2, cv2.LINE_AA)
+        bob = int(math.sin((anim_t or 0) * 2.2) * r * 0.25)
+        bx, by = w // 2, yt - r + bob
+        cv2.line(frame, (bx, 0), (bx, by - r), (90, 96, 118), 2, cv2.LINE_AA)  # 공 줄
+        cv2.circle(frame, (bx, by), r, (80, 200, 255), -1, cv2.LINE_AA)
+        cv2.circle(frame, (bx - r // 3, by - r // 3), max(2, r // 3),
+                   (200, 240, 255), -1, cv2.LINE_AA)  # 하이라이트
+        cv2.circle(frame, (bx, by), r, (30, 120, 200), 2, cv2.LINE_AA)
         texts.append(TextItem(f"목표 {state.target_cm:.0f}cm", (16, yt - 10),
                               max(18, h // 32), (160, 255, 200), anchor="lb"))
+    # 점프 중: 상승 스피드 라인 + 실시간 높이 표시
+    if state.state == JState.JUMP and state.current_head_y is not None:
+        hy_i = int(state.current_head_y)
+        for k in range(6):
+            x = int(w * (0.12 + 0.76 * ((k * 0.618) % 1.0)))
+            y0 = (hy_i + 60 + int(((anim_t or 0) * 500 + k * 90) % 240))
+            if y0 < h:
+                cv2.line(frame, (x, y0), (x, min(h, y0 + 34)), (120, 200, 160), 2,
+                         cv2.LINE_AA)
+        if state.baseline_head_y is not None and state.cm_per_px:
+            live = max(0.0, (state.baseline_head_y - state.current_head_y)
+                       * state.cm_per_px)
+            texts.append(TextItem(f"{live:.0f}cm", (w // 2, max(40, hy_i - 40)),
+                                  max(30, h // 16), (160, 255, 200),
+                                  anchor="mm", stroke=4))
 
     if state.best_cm is not None and state.state != JState.DONE:
         texts.append(TextItem(f"최고 약 {state.best_cm:.0f}cm",
@@ -159,7 +218,8 @@ def compose_jump(frame: np.ndarray, primary: PersonPose | None,
         gy, gh_ = int(h * 0.62), max(16, h // 32)
         panel(frame, gx - 12, gy - 12, gx + gw_ + 12, gy + gh_ + 12, radius=10,
               color=(14, 16, 26), alpha=0.55)
-        gauge_bar(frame, gx, gy, gw_, gh_, state.calib_progress, fg=ACCENT)
+        gauge_bar(frame, gx, gy, gw_, gh_, state.calib_progress, fg=ACCENT,
+                  anim_t=anim_t)
         msg_pill(frame, texts, state.message, int(h * 0.54), max(24, h // 22))
     elif state.state == JState.REST and state.last_cm is not None:
         texts.append(TextItem(f"약 {state.last_cm:.0f}cm",
@@ -182,15 +242,29 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
                    ) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
+    vignette(frame)
+    if state.state == PState.COUNTING:
+        corner_brackets(frame, ACCENT if state.posture_ok else (60, 80, 235),
+                        anim_t)
     if primary is not None:
         draw_skeleton(frame, primary,
                       color=(0, 235, 0) if state.posture_ok else (60, 80, 235),
                       joint_color=(0, 160, 255))
 
+    low_time = (state.mode == "timed" and state.time_remaining is not None
+                and 0 < state.time_remaining <= 5.0
+                and state.state == PState.COUNTING)
     sub = (f"남은 시간 {state.time_remaining:.0f}s"
            if state.mode == "timed" and state.time_remaining is not None
            else f"목표 {state.target_reps}개")
-    _top_bar(frame, texts, "팔굽혀펴기", sub)
+    _top_bar(frame, texts, "팔굽혀펴기", sub if not low_time else "", anim_t)
+    if low_time:  # 마지막 5초 — 크고 붉게 깜빡이는 카운트다운
+        k = 0.5 + 0.5 * math.sin((anim_t or 0) * 8.0)
+        texts.append(TextItem(f"남은 시간 {state.time_remaining:.0f}s !",
+                              (int(w * 0.42), int(h * 0.055)),
+                              max(24, h // 22),
+                              (255, int(120 + 100 * k), int(120 + 100 * k)),
+                              anchor="lm"))
 
     if state.state == PState.IDLE:
         msg_pill(frame, texts, state.message, int(h * 0.5), max(26, h // 20))
@@ -198,16 +272,19 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
                               (w // 2, int(h * 0.60)), max(18, h // 32),
                               (170, 185, 210), anchor="mm"))
     elif state.state == PState.COUNTING:
-        # 큰 개수 카운터 (우측)
+        # 큰 개수 카운터 (우측) — 내려간(down) 동안 테두리가 골드로 달아오름
+        down = state.phase == "down"
         panel(frame, int(w * 0.72), int(h * 0.30), int(w * 0.97), int(h * 0.56),
               radius=18, color=(12, 14, 24), alpha=0.6,
-              border=ACCENT, border_thickness=2)
+              border=GOLD if down else ACCENT, border_thickness=3 if down else 2)
         texts.append(TextItem(str(state.reps), (int(w * 0.845), int(h * 0.41)),
-                              max(70, h // 6), (255, 255, 255), anchor="mm",
-                              stroke=5))
+                              int(max(70, h // 6) * (1.08 if down else 1.0)),
+                              (255, 230, 140) if down else (255, 255, 255),
+                              anchor="mm", stroke=5))
         texts.append(TextItem("개", (int(w * 0.845), int(h * 0.52)),
                               max(20, h // 28), (200, 220, 255), anchor="mm"))
-        # 팔꿈치 굽힘 게이지 (하단): up_angle→down_angle 구간을 0→1 로
+        # 팔꿈치 굽힘 게이지 (하단): up_angle→down_angle 구간을 0→1 로.
+        # 임계 근처에서 색이 골드로 변해 "여기까지 내려가면 인정"을 보여준다
         if state.elbow_angle is not None:
             span = max(1e-6, state.up_angle - state.down_angle)
             ratio = max(0.0, min(1.0, (state.up_angle - state.elbow_angle) / span))
@@ -215,7 +292,9 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
             gw_, gh_ = int(w * 0.6), max(18, h // 34)
             panel(frame, gx - int(w * 0.055), gy - 10, gx + gw_ + 14,
                   gy + gh_ + 10, radius=12, color=(14, 16, 26), alpha=0.5)
-            gauge_bar(frame, gx, gy, gw_, gh_, ratio, fg=(230, 180, 40))
+            fg = GOLD if ratio >= 0.97 else (230, 180, 40)
+            gauge_bar(frame, gx, gy, gw_, gh_, ratio, fg=fg, pass_ratio=0.97,
+                      anim_t=anim_t)
             texts.append(TextItem("굽힘", (gx - 12, gy + gh_ // 2),
                                   max(18, h // 34), (255, 235, 180), anchor="rm"))
         if not state.posture_ok and state.posture_msg:

@@ -28,12 +28,16 @@ import math
 
 from ui.hud import (
     acc_colors as _acc_colors,
+    burst_rays,
     confetti as _confetti,
+    corner_brackets,
     countdown_ring,
     dots_x0 as _dots_x0,
     grade_of as _grade_of,
     msg_pill as _msg_pill,
     progress_dots as _progress_dots,
+    top_accent,
+    vignette,
 )
 
 from core.refs import REF_VIS, get_ref3d
@@ -396,6 +400,7 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
             guide_style: str = "image") -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
+    vignette(frame)  # 가장자리를 어둡게 — 시선을 중앙으로
 
     if primary is not None:
         # 합격 범위에 들어오면 스켈레톤이 골드로 변한다 (즉각적인 성공 피드백)
@@ -421,15 +426,18 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
     # 상단 진행 바(자세 n/N + 자세명 + 진행 도트)
     if state.target_pose is not None:
         translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
-        cv2.line(frame, (0, int(h * 0.11)), (w, int(h * 0.11)), (72, 120, 96), 1,
-                 cv2.LINE_AA)
+        top_accent(frame, int(h * 0.11), anim_t)
         small = max(20, h // 28)
         big = max(26, h // 20)
         n_txt = f"자세 {state.pose_index + 1}/{state.pose_total}"
         if state.combo >= 2:
             n_txt += f"  ·  콤보 x{state.combo}"
+        combo_c = (255, 190, 110)
+        if state.combo >= 2 and anim_t is not None:  # 콤보 텍스트 펄스
+            k = 0.5 + 0.5 * math.sin(anim_t * 5.0)
+            combo_c = (255, int(190 + 45 * k), int(110 + 60 * k))
         texts.append(TextItem(n_txt, (24, int(h * 0.055)), small,
-                              (255, 190, 110) if state.combo >= 2 else (200, 220, 255),
+                              combo_c if state.combo >= 2 else (200, 220, 255),
                               anchor="lm"))
         # 자세명: 좌측 텍스트/우측 진행 도트와 겹치지 않게 배치 + 말줄임
         name_x = max(int(w * 0.28), 24 + text_width(n_txt, small) + 32)
@@ -448,16 +456,24 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                               (255, 255, 255), anchor="mm"))
 
     elif state.state == State.COUNTDOWN:
+        corner_brackets(frame, anim_t=anim_t)
         n = int(np.ceil(state.countdown_remaining or 0))
-        # 매초 한 바퀴 도는 링 + 큰 숫자
+        # 매초 한 바퀴 도는 링 + 큰 숫자 (새 숫자가 뜰 때 살짝 커졌다 줄어듦)
         r = max(60, h // 6)
         countdown_ring(frame, w // 2, h // 2, r, state.countdown_remaining or 0)
-        texts.append(TextItem(str(n), (w // 2, h // 2), max(90, h // 4),
+        frac = float(state.countdown_remaining or 0) % 1.0
+        pop = 1.0 + 0.18 * max(0.0, (frac - 0.72) / 0.28)
+        texts.append(TextItem(str(n), (w // 2, h // 2),
+                              int(max(90, h // 4) * pop),
                               (255, 255, 255), anchor="mm", stroke=6))
         _msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22),
                   (220, 235, 255))
 
     elif state.state == State.SCORING:
+        # 합격 중이면 브래킷이 골드로 — 화면 전체가 "지금 잘 하고 있다"를 말해준다
+        passing_now = state.accuracy is not None and state.accuracy >= pass_accuracy
+        corner_brackets(frame, (60, 200, 255) if passing_now else (160, 231, 127),
+                        anim_t=anim_t)
         acc = state.accuracy
         # 정확도 게이지(좌측) — 합격선 눈금 포함
         gx, gy, gw, gh = 24, int(h * 0.16), int(w * 0.28), max(22, h // 26)
@@ -466,7 +482,7 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         if acc is not None:
             bar_c, txt_c = _acc_colors(acc, pass_accuracy)
             gauge_bar(frame, gx, gy, gw, gh, acc / 100.0, fg=bar_c,
-                      pass_ratio=pass_accuracy / 100.0)
+                      pass_ratio=pass_accuracy / 100.0, anim_t=anim_t)
             texts.append(TextItem(f"정확도 {acc:.0f}%", (gx, gy - 8),
                                   max(20, h // 30), txt_c, anchor="lb"))
         else:
@@ -477,18 +493,22 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         hx, hy, hw, hh = int(w * 0.2), int(h * 0.88), int(w * 0.6), max(18, h // 34)
         panel(frame, hx - int(w * 0.055), hy - 10, hx + hw + 14, hy + hh + 10,
               radius=12, color=(14, 16, 26), alpha=0.5)
-        gauge_bar(frame, hx, hy, hw, hh, state.hold_progress, fg=(230, 180, 40))
+        gauge_bar(frame, hx, hy, hw, hh, state.hold_progress, fg=(230, 180, 40),
+                  anim_t=anim_t)
         texts.append(TextItem("유지", (hx - 12, hy + hh // 2), max(18, h // 34),
                               (255, 235, 180), anchor="rm"))
         _msg_pill(frame, texts, state.message, int(h * 0.80), max(22, h // 24))
 
     elif state.state == State.RESULT:
+        score = state.last_score or 0.0
+        grade, grade_rgb = _grade_of(score)
+        # 점수 뒤에서 도는 광선 — 등급이 높을수록 골드
+        burst_rays(frame, w // 2, int(h * 0.53), anim_t,
+                   color=(60, 200, 255) if score >= 85 else (127, 231, 160))
         panel(frame, int(w * 0.14), int(h * 0.30), int(w * 0.86), int(h * 0.74),
               radius=24, color=(12, 14, 24), alpha=0.68,
               border=(127, 231, 160), border_thickness=2)
         _confetti(frame, anim_t)
-        score = state.last_score or 0.0
-        grade, grade_rgb = _grade_of(score)
         texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),
                               (120, 255, 140), anchor="mm"))
         score_fs = max(70, h // 6)
@@ -566,10 +586,12 @@ P2_RGB = (74, 168, 255)
 
 def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
                    p2pose: PersonPose | None, state: VersusState,
-                   pass_accuracy: float = 85.0) -> np.ndarray:
+                   pass_accuracy: float = 85.0,
+                   anim_t: float | None = None) -> np.ndarray:
     import cv2 as _cv2
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
+    vignette(frame)
 
     # 중앙 분할선 — 점선으로 부드럽게
     for y0 in range(0, h, 26):
@@ -597,10 +619,12 @@ def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
             acc = p.accuracy
             gauge_bar(frame, gx, int(h * 0.25), gw, max(16, h // 30),
                       0 if acc is None else acc / 100.0,
-                      fg=(0, 210, 0) if (acc is not None and acc >= pass_accuracy) else (60, 200, 200))
+                      fg=(0, 210, 0) if (acc is not None and acc >= pass_accuracy) else (60, 200, 200),
+                      anim_t=anim_t)
             texts.append(TextItem("정확도 --" if acc is None else f"정확도 {acc:.0f}%",
                                   (gx, int(h * 0.235)), max(14, h // 36), (255, 255, 255), anchor="lb"))
-            gauge_bar(frame, gx, int(h * 0.32), gw, max(12, h // 40), p.hold_progress, fg=(230, 180, 40))
+            gauge_bar(frame, gx, int(h * 0.32), gw, max(12, h // 40), p.hold_progress,
+                      fg=(230, 180, 40), anim_t=anim_t)
             if p.round_done:
                 texts.append(TextItem("완료!", (gx + gw, int(h * 0.235)), max(16, h // 30),
                                       rgb, anchor="rb"))
@@ -619,6 +643,9 @@ def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
     elif state.state == VState.DONE:
         translucent_rect(frame, 0, 0, w, h, alpha=0.75)
         wc = P1_RGB if state.winner == 1 else P2_RGB if state.winner == 2 else (255, 255, 255)
+        burst_rays(frame, w // 2, int(h * 0.4), anim_t,
+                   color=(wc[2], wc[1], wc[0]))  # RGB→BGR
+        _confetti(frame, anim_t)
         texts.append(TextItem(state.message, (w // 2, int(h * 0.4)), max(44, h // 10),
                               wc, anchor="mm", stroke=4))
         texts.append(TextItem(f"P1  {state.p1.total:.0f}점", (w // 2, int(h * 0.56)),

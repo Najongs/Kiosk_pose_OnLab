@@ -159,15 +159,34 @@ def translucent_rect(frame: np.ndarray, x1, y1, x2, y2, color=(20, 20, 20),
 
 
 def gauge_bar(frame: np.ndarray, x, y, w, h, ratio: float,
-              fg=(0, 210, 0), bg=(52, 56, 72), pass_ratio: float | None = None) -> None:
-    """알약(pill) 모양 게이지. pass_ratio 를 주면 합격선 눈금을 표시한다."""
+              fg=(0, 210, 0), bg=(52, 56, 72), pass_ratio: float | None = None,
+              anim_t: float | None = None) -> None:
+    """알약(pill) 모양 게이지. pass_ratio 를 주면 합격선 눈금을 표시한다.
+    anim_t 를 주면 채움 위에 하이라이트가 흘러가는 샤인 연출을 더한다."""
     x, y, w, h = int(x), int(y), int(w), int(h)
     ratio = max(0.0, min(1.0, ratio))
     r = h // 2
     _rounded_shape(frame, x, y, x + w, y + h, r, bg, -1)
     fill = int(w * ratio)
     if fill > 0:
-        _rounded_shape(frame, x, y, x + max(fill, min(h, w)), y + h, r, fg, -1)
+        fw = max(fill, min(h, w))
+        _rounded_shape(frame, x, y, x + fw, y + h, r, fg, -1)
+        # 상단 하이라이트 라인 — 원통 셰이딩 느낌
+        hi = tuple(min(255, c + 70) for c in fg)
+        cv2.line(frame, (x + r // 2, y + max(2, h // 5)),
+                 (x + fw - r // 2, y + max(2, h // 5)), hi, max(1, h // 9),
+                 cv2.LINE_AA)
+        # 채움 끝 발광 캡
+        cv2.circle(frame, (x + fw - r, y + h // 2), max(2, r - 2),
+                   (255, 255, 255), -1, cv2.LINE_AA)
+        if anim_t is not None and fw > h * 2:
+            # 흘러가는 샤인 스트라이프 (2.2초 주기)
+            sx = x + int(((anim_t % 2.2) / 2.2) * fw)
+            sw = max(6, h // 2)
+            x1s, x2s = max(x, sx - sw), min(x + fw, sx + sw)
+            if x2s > x1s:
+                roi = frame[y + 1:y + h - 1, x1s:x2s]
+                cv2.addWeighted(roi, 1.0, np.full_like(roi, 255), 0.18, 0, roi)
     if pass_ratio is not None and 0.0 < pass_ratio < 1.0:
         px = x + int(w * pass_ratio)
         cv2.line(frame, (px, y - 3), (px, y + h + 3), (235, 240, 250), 2, cv2.LINE_AA)

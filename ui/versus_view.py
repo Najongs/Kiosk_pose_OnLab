@@ -68,14 +68,15 @@ class VersusView(BaseGameView):
             _, vs = ctx
             poses = poses or []
             w = frame.shape[1]
-            state = vs.update(poses, time.monotonic() - start, w)
+            now = time.monotonic() - start
+            state = vs.update(poses, now, w)
             disp = fit_frame(frame, self._view_size)
             if disp.shape[:2] != frame.shape[:2]:
                 sx = disp.shape[1] / frame.shape[1]
                 sy = disp.shape[0] / frame.shape[0]
                 poses = [p.scaled(sx, sy) for p in poses]
             a, b = assign_players(poses, disp.shape[1])  # 좌반=P1, 우반=P2
-            composed = compose_versus(disp, a, b, state, pass_acc)
+            composed = compose_versus(disp, a, b, state, pass_acc, anim_t=now)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)
