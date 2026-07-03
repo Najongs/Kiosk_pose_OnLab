@@ -37,6 +37,8 @@ from ui.hud import (
     msg_pill as _msg_pill,
     next_grade_gap,
     progress_dots as _progress_dots,
+    splash_text,
+    stage_light,
     top_accent,
     vignette,
 )
@@ -398,10 +400,12 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
             pass_accuracy: float = 85.0,
             ref_norm: list[list[float]] | None = None,
             anim_t: float | None = None,
-            guide_style: str = "image") -> np.ndarray:
+            guide_style: str = "image",
+            splash_age: float | None = None) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
-    vignette(frame)  # 가장자리를 어둡게 — 시선을 중앙으로
+    # 채점 중엔 플레이어 스포트라이트, 그 외엔 비네트
+    stage_light(frame, primary, state.state == State.SCORING)
 
     if primary is not None:
         # 합격 범위에 들어오면 스켈레톤이 골드로 변한다 (즉각적인 성공 피드백)
@@ -499,6 +503,8 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         texts.append(TextItem("유지", (hx - 12, hy + hh // 2), max(18, h // 34),
                               (255, 235, 180), anchor="rm"))
         _msg_pill(frame, texts, state.message, int(h * 0.80), max(22, h // 24))
+        if splash_age is not None:  # 채점 시작 순간 "시작!" 스플래시
+            splash_text(texts, w, h, "시작!", splash_age)
 
     elif state.state == State.RESULT:
         score = state.last_score or 0.0

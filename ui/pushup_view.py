@@ -28,8 +28,18 @@ class PushupView(MiniGameView):
         )
 
     @staticmethod
-    def _compose(disp, primary, state, anim_t=None):
-        return compose_pushup(disp, primary, state, anim_t=anim_t)
+    def _compose(disp, primary, state, anim_t=None, popups=None):
+        return compose_pushup(disp, primary, state, anim_t=anim_t,
+                              popups=popups)
+
+    def _fx_events(self, prev, state, primary, w, h, now) -> list[dict]:
+        # 개수 인정 순간 — 카운터 옆에 "+1" 팝업
+        if state.reps > prev.reps:
+            color = (255, 230, 140) if state.good_reps > prev.good_reps \
+                else (255, 170, 150)  # 자세 나쁜 rep 은 옅은 붉은기
+            return [{"text": "+1", "x": int(w * 0.845), "y": int(h * 0.27),
+                     "at": now, "color": color}]
+        return []
 
     def _handle_state(self, state) -> None:
         # 개수 증가마다 틱 효과음

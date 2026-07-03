@@ -219,6 +219,121 @@ def burst_rays(frame: np.ndarray, cx: int, cy: int, anim_t: float | None,
     cv2.addWeighted(overlay, 0.10, frame, 0.90, 0, frame)
 
 
+class TrailTracker:
+    """빠르게 움직이는 관절(손목·머리)의 잔상 궤적 — 워커 렌더 클로저가 소유.
+
+    표시 좌표로 스케일된 포즈를 update() 하고, compose 직전에 draw() 하면
+    최근 위치들이 색이 옅어지며 이어지는 모션 트레일이 그려진다."""
+
+    def __init__(self, joints: tuple[int, ...] = (0, 15, 16), maxlen: int = 9,
+                 color=(160, 231, 127)):
+        from collections import deque
+        self.joints = joints
+        self.color = color
+        self._hist: "deque[dict[int, tuple[int, int]]]" = deque(maxlen=maxlen)
+
+    def update(self, pose) -> None:
+        if pose is None:
+            self._hist.clear()  # 사람이 사라지면 궤적도 끊는다
+            return
+        kp = pose.keypoints
+        pts = {j: (int(kp[j, 0]), int(kp[j, 1]))
+               for j in self.joints if j < len(kp) and kp[j, 2] >= 0.3}
+        self._hist.append(pts)
+
+    def draw(self, frame: np.ndarray) -> None:
+        n = len(self._hist)
+        if n < 2:
+            return
+        h = frame.shape[0]
+        for i in range(n - 1):
+            a, b = self._hist[i], self._hist[i + 1]
+            k = (i + 1) / n  # 오래된 것일수록 옅게·가늘게
+            c = tuple(int(v * k * 0.85) for v in self.color)
+            lw = max(1, int((h // 260) * k * 2))
+            for j in self.joints:
+                if j in a and j in b:
+                    # 정지 상태의 미세 떨림은 그리지 않는다 (지저분함 방지)
+                    if abs(a[j][0] - b[j][0]) + abs(a[j][1] - b[j][1]) > 6:
+                        cv2.line(frame, a[j], b[j], c, lw, cv2.LINE_AA)
+
+
+_spot_cache: dict = {"key": None, "mask": None}
+
+
+def spotlight(frame: np.ndarray, cx: int, cy: int, rx: int, ry: int,
+              dim: float = 0.30) -> None:
+    """플레이어 주변만 밝게, 바깥은 어둡게 — 무대 조명 효과.
+    사람 위치는 프레임 간 거의 안 변하므로 마스크를 48px 그리드로 양자화해
+    캐시한다 (재사용 시 프레임당 비용은 곱 1회 = 비네트 수준)."""
+    h, w = frame.shape[:2]
+    g = 48
+    key = (w, h, cx // g, cy // g, rx // g, ry // g, dim)
+    if _spot_cache["key"] != key:
+        sw, sh = max(2, w // 4), max(2, h // 4)
+        mask = np.full((sh, sw), int(255 * (1.0 - dim)), dtype=np.uint8)
+        cv2.ellipse(mask, (cx // 4, cy // 4),
+                    (max(4, rx // 4), max(4, ry // 4)),
+                    0, 0, 360, 255, -1)
+        mask = cv2.blur(mask, (31, 31))
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_LINEAR)
+        _spot_cache["mask"] = np.ascontiguousarray(
+            mask[..., None].repeat(3, axis=2))
+        _spot_cache["key"] = key
+    cv2.multiply(frame, _spot_cache["mask"], dst=frame, scale=1.0 / 255.0)
+
+
+def stage_light(frame: np.ndarray, primary, active: bool) -> None:
+    """플레이 중이면 플레이어 스포트라이트, 아니면 비네트만 — 무대에 선 느낌."""
+    if active and primary is not None:
+        x1, y1, x2, y2 = primary.bbox
+        cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+        rx = int(max(80, (x2 - x1) * 0.85))
+        ry = int(max(120, (y2 - y1) * 0.65))
+        spotlight(frame, cx, cy, rx, ry)
+    else:
+        vignette(frame)
+
+
+def splash_text(texts: list[TextItem], w: int, h: int, msg: str,
+                age: float, color=(255, 230, 90)) -> None:
+    """상태 전환 순간의 대형 스플래시("시작!") — 크게 떴다가 안착하며 사라짐."""
+    if age < 0 or age > 0.7:
+        return
+    k = age / 0.7
+    size = int(max(80, h // 5) * (1.45 - 0.45 * min(1.0, k * 2)))
+    c = tuple(int(v * (1.0 - max(0.0, k - 0.5) * 2)) for v in color)
+    texts.append(TextItem(msg, (w // 2, int(h * 0.42)), size, c,
+                          anchor="mm", stroke=6))
+
+
+def draw_popups(frame: np.ndarray, texts: list[TextItem], popups: list[dict],
+                now: float) -> None:
+    """이벤트 순간의 떠오르는 팝업(+1, +Ncm)과 스파크.
+    popup: {"text", "x", "y", "at", "color"(RGB)} — 1.1초 동안 떠오르며 사라짐."""
+    h = frame.shape[0]
+    for p in popups:
+        age = now - p["at"]
+        if age < 0 or age > 1.1:
+            continue
+        k = 1.0 - age / 1.1
+        x, y = int(p["x"]), int(p["y"] - 70 * age)
+        # 스파크: 처음 0.35초 동안 방사형 선
+        if age < 0.35:
+            u = age / 0.35
+            r0, r1 = int(10 + 26 * u), int(22 + 44 * u)
+            for i in range(8):
+                a = i * math.pi / 4 + 0.4
+                c = tuple(int(v * (1 - u)) for v in (90, 220, 255))
+                cv2.line(frame,
+                         (int(x + r0 * math.cos(a)), int(y + r0 * math.sin(a))),
+                         (int(x + r1 * math.cos(a)), int(y + r1 * math.sin(a))),
+                         c, 2, cv2.LINE_AA)
+        col = tuple(int(v * (0.35 + 0.65 * k)) for v in p.get("color", (255, 230, 90)))
+        size = int(max(26, h // 20) * (1.0 + 0.25 * (1 - k)))
+        texts.append(TextItem(p["text"], (x, y), size, col, anchor="mm", stroke=4))
+
+
 def expanding_rings(frame: np.ndarray, cx: int, cy: int, age: float,
                     color=(60, 200, 255), period: float = 0.5,
                     count: int = 3) -> None:

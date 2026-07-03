@@ -29,13 +29,14 @@ from ui.hud import (
     burst_rays,
     confetti,
     corner_brackets,
+    draw_popups,
     expanding_rings,
     grade_of,
     msg_pill,
     next_grade_gap,
     progress_dots,
+    stage_light as _stage_light,
     top_accent,
-    vignette,
 )
 
 ACCENT = (160, 231, 127)      # 민트 (BGR)
@@ -89,15 +90,17 @@ def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
 
 
 def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
-                     state: ReactionState, anim_t: float | None = None
-                     ) -> np.ndarray:
+                     state: ReactionState, anim_t: float | None = None,
+                     popups: list[dict] | None = None) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
-    vignette(frame)
+    _stage_light(frame, primary,
+                 state.state in (RState.WAIT, RState.SIGNAL))
     if state.state in (RState.WAIT, RState.SIGNAL):
         corner_brackets(frame, GOLD if state.signal_on else ACCENT, anim_t)
     if primary is not None:
-        c = GOLD if state.signal_on else (0, 235, 0)
+        # 테마 색: 대기=민트, 신호=골드 (게임 정체성 + 상태가 색으로 읽힘)
+        c = GOLD if state.signal_on else (127, 231, 160)
         draw_skeleton(frame, primary, color=c,
                       joint_color=(90, 220, 255) if state.signal_on
                       else (0, 160, 255))
@@ -156,19 +159,24 @@ def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
     else:
         msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22))
 
+    if popups and anim_t is not None:
+        draw_popups(frame, texts, popups, anim_t)
     return draw_texts(frame, texts)
 
 
 def compose_jump(frame: np.ndarray, primary: PersonPose | None,
-                 state: JumpState, anim_t: float | None = None) -> np.ndarray:
+                 state: JumpState, anim_t: float | None = None,
+                 popups: list[dict] | None = None) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
-    vignette(frame)
+    _stage_light(frame, primary,
+                 state.state in (JState.READY, JState.JUMP))
     if state.state in (JState.READY, JState.JUMP):
         corner_brackets(frame, ACCENT, anim_t)
     if primary is not None:
-        draw_skeleton(frame, primary, color=(0, 235, 0),
-                      joint_color=(0, 160, 255))
+        # 테마 색: 하늘색 (홈 카드 액센트 #4aa8ff 와 일치)
+        draw_skeleton(frame, primary, color=(255, 168, 74),
+                      joint_color=(255, 220, 160))
 
     cur = min(state.attempt_index + 1, state.attempt_total)
     _top_bar(frame, texts, "높이뛰기", f"시도 {cur}/{state.attempt_total}", anim_t)
@@ -239,22 +247,25 @@ def compose_jump(frame: np.ndarray, primary: PersonPose | None,
     else:
         msg_pill(frame, texts, state.message, int(h * 0.80), max(24, h // 22))
 
+    if popups and anim_t is not None:
+        draw_popups(frame, texts, popups, anim_t)
     return draw_texts(frame, texts)
 
 
 def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
-                   state: PushupState, anim_t: float | None = None
-                   ) -> np.ndarray:
+                   state: PushupState, anim_t: float | None = None,
+                   popups: list[dict] | None = None) -> np.ndarray:
     h, w = frame.shape[:2]
     texts: list[TextItem] = []
-    vignette(frame)
+    _stage_light(frame, primary, state.state == PState.COUNTING)
     if state.state == PState.COUNTING:
         corner_brackets(frame, ACCENT if state.posture_ok else (60, 80, 235),
                         anim_t)
     if primary is not None:
+        # 테마 색: 주황 (홈 카드 액센트 #ff8a4a) — 자세 무너지면 붉게
         draw_skeleton(frame, primary,
-                      color=(0, 235, 0) if state.posture_ok else (60, 80, 235),
-                      joint_color=(0, 160, 255))
+                      color=(74, 138, 255) if state.posture_ok else (60, 80, 235),
+                      joint_color=(120, 200, 255))
 
     low_time = (state.mode == "timed" and state.time_remaining is not None
                 and 0 < state.time_remaining <= 5.0
@@ -311,4 +322,6 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
                     [f"{state.reps}개 (바른 자세 {state.good_reps}개)",
                      f"자세 품질 {q}%"], anim_t)
 
+    if popups and anim_t is not None:
+        draw_popups(frame, texts, popups, anim_t)
     return draw_texts(frame, texts)

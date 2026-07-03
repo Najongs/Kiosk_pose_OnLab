@@ -211,10 +211,16 @@ class MiniGameView(BaseGameView):
         raise NotImplementedError
 
     @staticmethod
-    def _compose(disp, primary, state, anim_t=None):
+    def _compose(disp, primary, state, anim_t=None, popups=None):
         raise NotImplementedError
 
     def _detail(self, state) -> list[tuple[str, float]]:
+        return []
+
+    def _fx_events(self, prev, state, primary, w: int, h: int,
+                   now: float) -> list[dict]:
+        """상태 변화에서 팝업 이벤트를 뽑는다 (워커 스레드 — Qt 금지).
+        반환: [{"text","x","y","at","color"}] — 기본 없음."""
         return []
 
     def _on_stop(self) -> None:
@@ -227,6 +233,7 @@ class MiniGameView(BaseGameView):
         from core.engine import load_settings
         from core.tracker import PrimarySubjectTracker
         from core.warm import get_estimator
+        from ui.hud import TrailTracker
         from ui.qtutil import draw_fps, fit_frame
 
         holder: dict = {}
@@ -264,7 +271,8 @@ class MiniGameView(BaseGameView):
 
         def render(frame, primary):
             """표시 루프(카메라 fps): 화면 해상도로 먼저 확대 후 HUD.
-            게임 갱신도 확대된 좌표로 — 기준선/목표선 픽셀 좌표가 화면과 일치."""
+            게임 갱신도 확대된 좌표로 — 기준선/목표선 픽셀 좌표가 화면과 일치.
+            모션 트레일·이벤트 팝업 상태는 이 클로저가 소유(뷰 재시작 시 초기화)."""
             ctx = holder.get("ctx")
             if ctx is None:
                 return fit_frame(frame, self._view_size), None  # 모델 로딩 중
@@ -275,7 +283,21 @@ class MiniGameView(BaseGameView):
                 primary = primary.scaled(disp.shape[1] / frame.shape[1],
                                          disp.shape[0] / frame.shape[0])
             state = game.update(primary, now)
-            composed = compose_fn(disp, primary, state, anim_t=now)
+            # 손목·머리 잔상 궤적 (compose 의 배경 처리보다 먼저 그려 은은하게)
+            trail = holder.setdefault("trail", TrailTracker())
+            trail.update(primary)
+            trail.draw(disp)
+            # 이벤트 팝업 (+1, +Ncm …) — 직전 상태와 비교해 감지
+            popups: list = holder.setdefault("popups", [])
+            prev = holder.get("prev_state")
+            if prev is not None:
+                popups.extend(self._fx_events(prev, state, primary,
+                                              disp.shape[1], disp.shape[0], now))
+                del popups[:-6]  # 폭주 방지
+            holder["prev_state"] = state
+            popups[:] = [p for p in popups if now - p["at"] < 1.1]
+            composed = compose_fn(disp, primary, state, anim_t=now,
+                                  popups=list(popups))
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)

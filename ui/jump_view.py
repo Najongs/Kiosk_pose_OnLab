@@ -22,8 +22,16 @@ class JumpView(MiniGameView):
         )
 
     @staticmethod
-    def _compose(disp, primary, state, anim_t=None):
-        return compose_jump(disp, primary, state, anim_t=anim_t)
+    def _compose(disp, primary, state, anim_t=None, popups=None):
+        return compose_jump(disp, primary, state, anim_t=anim_t, popups=popups)
+
+    def _fx_events(self, prev, state, primary, w, h, now) -> list[dict]:
+        # 착지(기록 확정) 순간 — 머리 위에 "+Ncm" 팝업
+        if len(state.attempts_cm) > len(prev.attempts_cm) and state.last_cm:
+            y = int(state.current_head_y or h * 0.35)
+            return [{"text": f"+{state.last_cm:.0f}cm", "x": w // 2,
+                     "y": max(80, y - 60), "at": now, "color": (140, 235, 255)}]
+        return []
 
     def _detail(self, state) -> list[tuple[str, float]]:
         return [(f"{i + 1}회 (cm)", cm) for i, cm in enumerate(state.attempts_cm)]

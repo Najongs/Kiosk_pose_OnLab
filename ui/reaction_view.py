@@ -34,8 +34,9 @@ class ReactionView(MiniGameView):
         )
 
     @staticmethod
-    def _compose(disp, primary, state, anim_t=None):
-        return compose_reaction(disp, primary, state, anim_t=anim_t)
+    def _compose(disp, primary, state, anim_t=None, popups=None):
+        return compose_reaction(disp, primary, state, anim_t=anim_t,
+                                popups=popups)
 
     def _detail(self, state) -> list[tuple[str, float]]:
         return [(f"{i + 1}회 (ms)", ms) for i, ms in enumerate(state.times_ms)]

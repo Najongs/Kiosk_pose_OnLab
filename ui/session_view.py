@@ -113,8 +113,14 @@ class SessionView(BaseGameView):
             if disp.shape[:2] != frame.shape[:2] and primary is not None:
                 primary = primary.scaled(disp.shape[1] / frame.shape[1],
                                          disp.shape[0] / frame.shape[0])
+            # 채점 진입 순간을 잡아 "시작!" 스플래시 (클로저가 전이 시각 소유)
+            if state.state.value == "scoring" and holder.get("prev") != "scoring":
+                holder["splash_at"] = now
+            holder["prev"] = state.state.value
+            sp = holder.get("splash_at")
+            splash_age = (now - sp) if sp is not None and now - sp <= 0.7 else None
             composed = compose(disp, primary, state, pass_acc, ref, anim_t=now,
-                               guide_style=guide_style)
+                               guide_style=guide_style, splash_age=splash_age)
             if show_fps:
                 disp_ts.append(time.monotonic())
                 draw_fps(composed, disp_ts, infer_ts)
