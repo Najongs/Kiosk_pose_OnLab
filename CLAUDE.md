@@ -33,7 +33,8 @@ ui/    game_view(BaseGameView/MiniGameView — 워커 스레드 수명주기 공
        session_view/versus_view/reaction_view/jump_view/pushup_view,
        renderer+game_renderers(HUD 합성), hud(공용 프리미티브),
        home(게임 카드 + 코스 서브페이지 + 게임별 리더보드 탭),
-       admin_dialog(PIN 기본 4000, 코스 편집·기준자세 캡처), attract
+       admin_dialog(PIN 기본 4000, 코스 편집·기준자세 캡처),
+       attract(유휴 시 라이브 미러 호객 — 실시간 스켈레톤 + 랜덤 플러시, 슬라이드쇼 폴백)
 tools/ build_exe(PyInstaller), verify_ui/verify_versus/verify_games(헤드리스 스크린샷),
        test_games(합성 골격 상태머신 테스트),
        import_poses(이미지→자세 JSON 자동 생성), bake_character(glb→스프라이트 베이크)
