@@ -32,6 +32,7 @@ from ui.hud import (
     expanding_rings,
     grade_of,
     msg_pill,
+    next_grade_gap,
     progress_dots,
     top_accent,
     vignette,
@@ -81,6 +82,10 @@ def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
     for line in lines:
         texts.append(TextItem(line, (w // 2, y), fs, (220, 235, 255), anchor="mm"))
         y += int(fs * 1.6)
+    gap = next_grade_gap(score)  # 근접 목표 — 재도전 유도
+    if gap:
+        texts.append(TextItem(f"한 번 더?  {gap}", (w // 2, y),
+                              fs, (255, 220, 130), anchor="mm"))
 
 
 def compose_reaction(frame: np.ndarray, primary: PersonPose | None,

@@ -39,8 +39,9 @@ class MainWindow(QMainWindow):
         self._bgm = Bgm()
         self._apply_bgm()
 
-        # 어트랙트 모드: 홈에서 일정 시간 입력 없으면 예시 슬라이드쇼로 호객
-        self._attract = AttractOverlay(self)
+        # 어트랙트 모드: 홈에서 일정 시간 입력 없으면 라이브 미러로 호객
+        # (카메라에 비치는 행인 스켈레톤 실시간 표시, 실패 시 슬라이드쇼 폴백)
+        self._attract = AttractOverlay(self, source_factory=source_factory)
         self._attract.hide()
         self._attract.dismissed.connect(self._reset_idle)
         self._idle = QTimer(self)

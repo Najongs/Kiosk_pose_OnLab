@@ -73,15 +73,17 @@ def _start_minigame(view, params: dict, cfg: dict, factory) -> None:
     view.begin(cfg, factory, params.get("name", ""))
 
 
+# 카드 순서: 크고 눈에 띄는 전신 동작 게임을 앞에 — 플레이 모습 자체가 호객
+# (docs/콘텐츠/게임_레퍼런스_조사.md C3: 과장된 전신 동작이 유인 트리거)
 REGISTRY: list[GameDef] = [
-    GameDef("stretch", "스트레칭 코스", "안내 자세를 따라 하고 유연성 점수 받기",
-            "🧘", "#2ee6a6", _make_stretch, _start_stretch),
-    GameDef("versus", "2인 대결", "화면을 반씩 나눠 같은 자세로 대결",
-            "⚔️", "#ff6ec4", _make_versus, _start_versus, board=False),
     GameDef("reaction", "반응속도 테스트", "신호가 뜨면 최대한 빨리 손 들기",
             "⚡", "#ffdc40", _make_reaction, _start_minigame),
     GameDef("jump", "높이뛰기", "제자리 점프 높이 측정 — 목표선을 넘겨라",
             "🦘", "#4aa8ff", _make_jump, _start_minigame),
+    GameDef("stretch", "스트레칭 코스", "안내 자세를 따라 하고 유연성 점수 받기",
+            "🧘", "#2ee6a6", _make_stretch, _start_stretch),
+    GameDef("versus", "2인 대결", "화면을 반씩 나눠 같은 자세로 대결",
+            "⚔️", "#ff6ec4", _make_versus, _start_versus, board=False),
     GameDef("pushup", "팔굽혀펴기", "개수 자동 카운트 + 자세 피드백",
             "💪", "#ff8a4a", _make_pushup, _start_minigame),
 ]

@@ -35,6 +35,7 @@ from ui.hud import (
     dots_x0 as _dots_x0,
     grade_of as _grade_of,
     msg_pill as _msg_pill,
+    next_grade_gap,
     progress_dots as _progress_dots,
     top_accent,
     vignette,
@@ -524,6 +525,10 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                                   (w // 2 - half - int(w * 0.02), int(h * 0.53)),
                                   max(22, h // 26), (255, 190, 110),
                                   anchor="rm", stroke=3))
+        gap = next_grade_gap(score)  # 근접 목표 — 재도전 유도
+        if gap:
+            texts.append(TextItem(gap, (w // 2, int(h * 0.635)),
+                                  max(18, h // 30), (255, 220, 130), anchor="mm"))
         if state.result_remaining is not None:
             n = int(np.ceil(state.result_remaining))
             nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"

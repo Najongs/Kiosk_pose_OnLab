@@ -25,6 +25,18 @@ def grade_of(score: float) -> tuple[str, tuple[int, int, int]]:
     return "C", (200, 205, 220)
 
 
+def next_grade_gap(score: float) -> str | None:
+    """다음 등급까지 남은 점수 문구 — 재도전을 부르는 근접 목표.
+    (호기심/불확실성이 자발적 재플레이의 최강 예측자 — CHI 2024, 레퍼런스 조사 D2)"""
+    for threshold, name in ((70, "B"), (85, "A"), (95, "S")):
+        if score < threshold:
+            gap = threshold - score
+            if gap <= 15:  # 손에 닿을 듯할 때만 (멀면 오히려 낙담)
+                return f"{name} 등급까지 {gap:.0f}점!"
+            return None
+    return None
+
+
 def acc_colors(accuracy: float, pass_accuracy: float):
     """(cv2 BGR bar 색, PIL RGB 텍스트 색) 반환."""
     if accuracy >= pass_accuracy:

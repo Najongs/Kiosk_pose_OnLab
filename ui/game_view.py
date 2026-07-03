@@ -199,6 +199,13 @@ class MiniGameView(BaseGameView):
     def __init__(self):
         super().__init__()
         self._game = None  # 검증 도구 호환용 참조(워커가 생성)
+        from PySide6.QtWidgets import QLabel
+        self._record_lbl = QLabel("🏆 신기록!", self)
+        self._record_lbl.setStyleSheet(
+            "color:#ffd75a; font-size:34px; font-weight:900;"
+            "background:rgba(20,16,4,0.65); border:2px solid #ffd75a;"
+            "border-radius:14px; padding:10px 26px;")
+        self._record_lbl.hide()
 
     def _make_game(self, cfg: dict):
         raise NotImplementedError
@@ -212,6 +219,7 @@ class MiniGameView(BaseGameView):
 
     def _on_stop(self) -> None:
         self._game = None  # 공유 모델은 core.warm 이 관리 — close 하지 않음
+        self._record_lbl.hide()
 
     def build(self, cfg: dict):
         import collections
@@ -287,9 +295,20 @@ class MiniGameView(BaseGameView):
         if st == "done" and not self._saved:
             self._saved = True
             score = getattr(state, "score", None) or 0.0
+            from core.leaderboard import top_n
+            prev = top_n(1, game=self.game_id)
+            is_record = score > 0 and (not prev or score > prev[0].get("total", 0))
             self._record(score, self._detail(state))
+            if is_record:
+                self._record_lbl.show()  # 신기록 배너 — 구경꾼에게도 보이는 성취
             if self._sound is not None:
                 self._sound.fanfare()
                 self._sound.speak(state.message)
             self._home_btn.show()
         self._prev_state = st
+
+    def resizeEvent(self, e) -> None:
+        super().resizeEvent(e)
+        self._record_lbl.adjustSize()
+        self._record_lbl.move((self.width() - self._record_lbl.width()) // 2,
+                              int(self.height() * 0.13))
