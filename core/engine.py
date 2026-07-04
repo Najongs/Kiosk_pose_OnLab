@@ -45,6 +45,7 @@ class Engine:
                 num_poses=pe.get("num_poses", 1),
                 min_detection_confidence=pe.get("min_detection_confidence", 0.5),
                 min_tracking_confidence=pe.get("min_tracking_confidence", 0.5),
+                model_variant=pe.get("model", "auto"),
             )
             self._owns_estimator = False
         else:
@@ -53,12 +54,14 @@ class Engine:
                 min_detection_confidence=pe.get("min_detection_confidence", 0.5),
                 min_tracking_confidence=pe.get("min_tracking_confidence", 0.5),
                 static_image_mode=static_image_mode,
+                model_variant=pe.get("model", "auto"),
             )
             self._owns_estimator = True
         self.tracker = PrimarySubjectTracker(
             center_weight=tr.get("center_weight", 0.3),
             min_iou_keep=tr.get("min_iou_keep", 0.2),
             grace_frames=tr.get("grace_frames", 15),
+            smoothing=tr.get("smoothing", True),
         )
         self.scorer = PoseScorer(
             min_keypoint_confidence=sc.get("min_keypoint_confidence", 0.4)

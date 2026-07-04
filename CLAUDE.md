@@ -66,12 +66,13 @@ Python 단위테스트 디렉토리는 없음 — 검증은 위 헤드리스 스
 5. **Windows 카메라는 DSHOW 사다리 유지** — MSMF는 행(hang) 이력으로 최후순위. 카메라 스캔 결과는 디스크 캐시됨(재스캔은 관리자 메뉴)
 6. **배포는 onedir만** — 앱이 런타임에 `config/`에 기록하므로 onefile 불가
 7. 추론은 반드시 워커 스레드 + MediaPipe LIVE_STREAM 비동기 유지 (UI 스레드에서 추론 시 화면 버벅임)
+8. **키포인트 스무딩은 동일인 추적이 보장되는 지점(트래커 뒤/대결 자리별)에만** — 사람이 바뀌면 reset 필수. 모델은 full 기본(lite 는 떨림 심함, heavy 는 2.8배 느림 — `tools/bench_pose.py`로 재측정)
 
 ## 설정 파일
 
 | 파일 | 내용 |
 |---|---|
-| `config/settings.json` | 엔진: 카메라·추정기·추적기·채점(pass 85%, hold 3s) |
+| `config/settings.json` | 엔진: 카메라·추정기(model: lite/full/heavy, 기본 full)·추적기(smoothing: One Euro 필터)·채점(pass 85%, hold 3s) |
 | `config/app_config.json` | UX: 코스, 타이밍, 사운드, 관리자 PIN, guideStyle (기본값은 `core/appconfig.py`) |
 | `config/poses/*.json` | 자세 정의 (angle/lean 메트릭, `side:"both"`+`aggregate` 지원) |
 | `config/courses.json` | 코스 (웹에 자동 미러) |

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 
 import cv2
 import mediapipe as mp
@@ -27,15 +28,22 @@ from .pose_estimator import NUM_KEYPOINTS, PersonPose, PoseEstimator
 _MODELS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
+# 안정성 우선순위: full 기본. lite 는 저사양 CPU 에서만(떨림 심함),
+# heavy 는 가장 안정적이나 추론이 2~3배 느림 — settings.json 의
+# pose_estimator.model 로 선택("auto"|"lite"|"full"|"heavy").
+_VARIANT_ORDER = {"auto": ("full", "heavy", "lite"),
+                  "lite": ("lite", "full", "heavy"),
+                  "full": ("full", "heavy", "lite"),
+                  "heavy": ("heavy", "full", "lite")}
 
-def _default_model() -> str:
-    """CPU 성능을 위해 경량(lite) 모델 우선, 없으면 full."""
-    lite = os.path.join(_MODELS_DIR, "pose_landmarker_lite.task")
-    full = os.path.join(_MODELS_DIR, "pose_landmarker_full.task")
-    return lite if os.path.isfile(lite) else full
 
-
-_DEFAULT_MODEL = _default_model()
+def resolve_model(variant: str = "auto") -> str:
+    """선호 변형부터 존재하는 모델 파일 경로를 고른다."""
+    for v in _VARIANT_ORDER.get(variant, _VARIANT_ORDER["auto"]):
+        p = os.path.join(_MODELS_DIR, f"pose_landmarker_{v}.task")
+        if os.path.isfile(p):
+            return p
+    return os.path.join(_MODELS_DIR, "pose_landmarker_full.task")
 
 
 class MediaPipeEstimator(PoseEstimator):
@@ -47,18 +55,20 @@ class MediaPipeEstimator(PoseEstimator):
         min_tracking_confidence: float = 0.5,
         static_image_mode: bool = False,
         async_infer: bool = True,
+        model_variant: str = "auto",
     ):
         """async_infer=True(기본): LIVE_STREAM 모드로 추론을 MediaPipe 내부
         C++ 스레드에서 실행한다. detect_for_video 는 파이썬 GIL 을 잡은 채
         계산해 다른 스레드(화면 표시)까지 멈추지만, detect_async 는 즉시
         반환되고 우리는 이벤트 대기(GIL 해제)만 하므로 표시 루프가 카메라
         fps 를 유지한다. 오프라인 도구(영상 일괄 처리)는 False 로."""
-        model_path = model_path or _DEFAULT_MODEL
+        model_path = model_path or resolve_model(model_variant)
         if not os.path.isfile(model_path):
             raise FileNotFoundError(
                 f"PoseLandmarker 모델을 찾을 수 없음: {model_path}\n"
                 "models/ 폴더에 pose_landmarker_full.task 를 받아두세요."
             )
+        print(f"[포즈 모델] {os.path.basename(model_path)}")
 
         self._image_mode = static_image_mode
         self._async = bool(async_infer) and not static_image_mode
@@ -110,15 +120,18 @@ class MediaPipeEstimator(PoseEstimator):
             if self._image_mode:
                 result = self._landmarker.detect(mp_image)
             elif self._async:
-                # 비동기 제출 후 결과 대기 — 대기 중 GIL 이 풀려 표시 루프가 돈다
-                self._ts_ms += 33
+                # 비동기 제출 후 결과 대기 — 대기 중 GIL 이 풀려 표시 루프가 돈다.
+                # 타임스탬프는 실제 시간 기반 — MediaPipe 내부 랜드마크 필터가
+                # 시간 간격을 보고 동작하므로 고정 +33ms 보다 안정적이다.
+                self._ts_ms = max(self._ts_ms + 1, int(time.monotonic() * 1000))
                 self._event.clear()
                 self._landmarker.detect_async(mp_image, self._ts_ms)
                 if not self._event.wait(timeout=2.0):
                     return []  # 시간 초과(드묾) — 이 프레임은 건너뜀
                 result = self._raw_result
             else:
-                self._ts_ms += 33  # ~30fps 가정 (정확한 fps 없이도 단조 증가면 충분)
+                # 오프라인(영상 일괄): 실제 시간이 없으므로 ~30fps 가정 단조 증가
+                self._ts_ms += 33
                 result = self._landmarker.detect_for_video(mp_image, self._ts_ms)
 
         if not result.pose_landmarks:

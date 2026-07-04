@@ -11,6 +11,7 @@ import time
 
 from core.pose_def import load_pose
 from core.scorer import PoseScorer
+from core.smoothing import PoseSmoother
 from core.versus import VersusSession, VState, assign_players
 from core.warm import get_estimator
 from ui.game_view import BaseGameView
@@ -76,6 +77,17 @@ class VersusView(BaseGameView):
                 sy = disp.shape[0] / frame.shape[0]
                 poses = [p.scaled(sx, sy) for p in poses]
             a, b = assign_players(poses, disp.shape[1])  # 좌반=P1, 우반=P2
+            # 좌/우 자리는 프레임 간 동일인이므로 자리별 스무딩이 안전하다
+            smoothers = holder.setdefault(
+                "smooth", (PoseSmoother(), PoseSmoother()))
+            if a is not None:
+                a = smoothers[0].apply(a, now)
+            else:
+                smoothers[0].reset()
+            if b is not None:
+                b = smoothers[1].apply(b, now)
+            else:
+                smoothers[1].reset()
             composed = compose_versus(disp, a, b, state, pass_acc, anim_t=now)
             if show_fps:
                 disp_ts.append(time.monotonic())

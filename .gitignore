@@ -231,3 +231,7 @@ error.log
 # 워크아웃 참조 스크린샷(저작권) — config/examples 로 파생만 사용
 testdata/*.png
 config/camera_cache.json
+
+# heavy 포즈 모델(30MB)은 리포에 넣지 않는다 — 필요 시 다운로드:
+# curl -L -o models/pose_landmarker_heavy.task https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task
+models/pose_landmarker_heavy.task
