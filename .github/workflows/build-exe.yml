@@ -1,0 +1,63 @@
+# Windows exe 자동 빌드 — 로컬에 파이썬 없이도 배포본을 얻는다.
+#
+# 실행 방법 두 가지:
+#  1) GitHub 저장소 → Actions 탭 → "Build Windows EXE" → Run workflow (수동)
+#  2) v* 태그 푸시 (예: git tag v0.3 && git push origin v0.3)
+#     → 빌드 후 Release 에 zip 자동 첨부
+#
+# 결과물: Actions 실행 페이지의 Artifacts 에서 OnLab-windows.zip 다운로드
+# (압축 풀고 OnLab.exe 실행 — 키오스크에 파이썬 불필요)
+
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (앱 의존성 + PyInstaller 를 같은 환경에)
+        run: python -m pip install -r requirements.txt pyinstaller
+
+      - name: Build (사전 점검 포함)
+        run: python tools/build_exe.py --console
+
+      - name: Smoke test (exe 가 모듈 오류 없이 뜨는지 — 이미지 소스로 8초)
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process -FilePath "dist\OnLab\OnLab.exe" `
+            -ArgumentList "--source","testdata\mountain.jpg","--windowed","--loop" `
+            -PassThru -NoNewWindow -RedirectStandardOutput out.log -RedirectStandardError err.log
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) {
+            Get-Content out.log, err.log
+            throw "exe 가 8초 안에 종료됨 (exit=$($p.ExitCode)) — 위 로그 확인"
+          }
+          Stop-Process -Id $p.Id -Force
+          Write-Host "smoke OK — exe 정상 구동"
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist/OnLab -DestinationPath OnLab-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OnLab-windows
+          path: OnLab-windows.zip
+          retention-days: 30
+
+      - name: Attach to release (태그 빌드일 때만)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: OnLab-windows.zip
