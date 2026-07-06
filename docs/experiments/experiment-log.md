@@ -62,7 +62,7 @@
 ## 6. 배포 — PyInstaller onefile vs onedir
 
 - **onefile 폐기**: 앱이 실행 중 `config/`(설정·리더보드·카메라 캐시)에 기록하는데, onefile은 임시폴더에 풀려 기록이 소실됨.
-- **onedir 채택** (`tools/build_exe.py` → `dist/OnLab/`, 약 700MB): `_internal/config/`에 기록 유지. 상세는 [배포 가이드](../배포/배포_빌드_가이드.md). (`0885597`)
+- **onedir 채택** (`tools/build_exe.py` → `dist/OnLab/`, 약 700MB): `_internal/config/`에 기록 유지. 상세는 [배포 가이드](../deploy/build-guide.md). (`0885597`)
 - Windows exe는 Windows에서만 빌드 가능 (교차 빌드 불가).
 
 ## 7. 포즈 탐지 안정화 — 모델 선택 + One Euro 스무딩 (2026-07)

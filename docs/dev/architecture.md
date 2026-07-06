@@ -121,5 +121,5 @@ cd web && npm test               # Vitest — 채점 parity + versus
 1. **Python↔TS parity**: `core/scorer.py` 수정 시 `web/src/scorer.ts`도 동일하게 수정하고 `web/test/parity.test.ts` 통과 확인
 2. **courses 미러**: 코스는 `core/courses.py`를 통해 저장해야 웹 미러가 동기화됨
 3. **numpy<2.0** 고정 (MediaPipe 호환)
-4. **QtQuick3D 사용 금지(기본)**: 일부 GPU 드라이버 크래시 이력 → 캐릭터 가이드는 베이크 스프라이트가 기본 (`docs/실험/실험_기록.md` 참고)
+4. **QtQuick3D 사용 금지(기본)**: 일부 GPU 드라이버 크래시 이력 → 캐릭터 가이드는 베이크 스프라이트가 기본 (`docs/experiments/experiment-log.md` 참고)
 5. cv2는 한글을 못 그림 → 텍스트 렌더링은 Pillow 경유 (`ONLAB_FONT`로 폰트 재정의 가능)

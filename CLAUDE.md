@@ -40,7 +40,7 @@ tools/ build_exe(PyInstaller), verify_ui/verify_versus/verify_games(헤드리스
        import_poses(이미지→자세 JSON 자동 생성), bake_character(glb→스프라이트 베이크)
 ```
 
-상세: `docs/개발/아키텍처_개요.md`
+상세: `docs/dev/architecture.md`
 
 ## 실행·검증 명령
 
@@ -57,7 +57,7 @@ python tools/build_exe.py        # Windows 전용 PyInstaller onedir 빌드
 
 Python 단위테스트 디렉토리는 없음 — 검증은 위 헤드리스 스크립트로. 웹은 Vitest.
 
-## 지켜야 할 규칙 (실험으로 확정된 것 — `docs/실험/실험_기록.md` 참고)
+## 지켜야 할 규칙 (실험으로 확정된 것 — `docs/experiments/experiment-log.md` 참고)
 
 1. **numpy<2.0 고정** (MediaPipe 호환, `requirements.txt`)
 2. **QtQuick3D 실시간 캐릭터 금지(기본)** — 일부 GPU 드라이버 크래시 이력. 캐릭터 가이드는 `tools/bake_character.py` 베이크 스프라이트가 기본. 실시간 경로는 `ONLAB_QTQUICK3D=1` 뒤에만 존재
@@ -82,7 +82,7 @@ Python 단위테스트 디렉토리는 없음 — 검증은 위 헤드리스 스
 
 ## 문서
 
-`docs/개요.md`가 문서 지도. 개발/(아키텍처·SRS), 콘텐츠/(아이디어 분석), 배포/(빌드 가이드), 실험/(시도·전환 기록 — **폐기한 접근을 다시 시도하기 전에 반드시 확인**), 회의/.
+`docs/overview.md`가 문서 지도 (한·영 병기). dev/(아키텍처·SRS), content/(아이디어 분석), deploy/(빌드 가이드), experiments/(시도·전환 기록 — **폐기한 접근을 다시 시도하기 전에 반드시 확인**), meetings/. 문서 파일·폴더명은 영어 kebab-case.
 
 ## 알려진 한계
 

@@ -76,7 +76,7 @@ def _start_minigame(view, params: dict, cfg: dict, factory) -> None:
 
 
 # 카드 순서: 크고 눈에 띄는 전신 동작 게임을 앞에 — 플레이 모습 자체가 호객
-# (docs/콘텐츠/게임_레퍼런스_조사.md C3: 과장된 전신 동작이 유인 트리거)
+# (docs/content/game-references.md C3: 과장된 전신 동작이 유인 트리거)
 REGISTRY: list[GameDef] = [
     GameDef("reaction", "반응속도 테스트", "신호가 뜨면 최대한 빨리 손 들기",
             "⚡", "#ffdc40", _make_reaction, _start_minigame,

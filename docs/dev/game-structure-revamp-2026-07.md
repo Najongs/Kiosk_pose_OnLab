@@ -1,7 +1,7 @@
 # 게임 선택 구조 개편 + 미니게임 3종 추가 (2026-07)
 
 > 단일 스트레칭 앱 → **다중 게임 키오스크**로 재편한 작업 기록.
-> 배경: [콘텐츠/아이디어_적용성_분석.md](../콘텐츠/아이디어_적용성_분석.md)의 1등급 후보 구현.
+> 배경: [content/idea-feasibility.md](../content/idea-feasibility.md)의 1등급 후보 구현.
 
 ## 무엇이 바뀌었나
 
@@ -35,7 +35,7 @@
 ### 4. 새 게임 추가 절차 (이후 확장용)
 1. `core/games/<게임>.py` 상태머신 → 2. `compose_<게임>` 렌더러 → 3. `MiniGameView`
 서브클래스 → 4. `REGISTRY` 한 줄 → 5. `test_games.py`/`verify_games.py` 케이스.
-상세는 [CLAUDE.md](../../CLAUDE.md)와 [아키텍처_개요.md](아키텍처_개요.md) 참고.
+상세는 [CLAUDE.md](../../CLAUDE.md)와 [architecture.md](architecture.md) 참고.
 
 ### 5. 게임 룩 연출 강화 (후속 폴리시)
 - **`ui/hud.py` 연출 프리미티브**: 비네트(가장자리 어둡게, 해상도별 마스크 캐시),
@@ -52,12 +52,12 @@
   글리프가 없어 □ 로 깨진다 (⏰🔥 로 실제 발생, 텍스트로 교체). Qt 위젯 쪽 이모지는 무관.
 
 ### 6. 참여 유도 구현 (레퍼런스 조사 기반 — 2026-07)
-근거·우선순위는 [콘텐츠/관심유도_개선방향.md](../콘텐츠/관심유도_개선방향.md) 참고.
+근거·우선순위는 [content/engagement-improvements.md](../content/engagement-improvements.md) 참고.
 - **어트랙트 라이브 미러**(`ui/attract.py` 재작성): 유휴 시 실시간 스켈레톤 미러
   (2인, warm 모델 공유) + 단계적 반응 문구 + 무작위 간격 플러시/효과음,
   카메라 실패 시 슬라이드쇼 폴백. 검증 `tools/verify_attract.py`
 - 근접 목표("○ 등급까지 N점", 15점 이내만), 미니게임 신기록 배너,
-  홈 카드 큰 동작 게임 우선, [배포/행사_운영_체크리스트.md](../배포/행사_운영_체크리스트.md)
+  홈 카드 큰 동작 게임 우선, [deploy/event-checklist.md](../deploy/event-checklist.md)
 
 ### 7. 플레이 중 그래픽 강화 (2026-07)
 - **스포트라이트**(`ui/hud.spotlight`): 플레이 중 사람 주변만 밝게 — 48px 그리드
