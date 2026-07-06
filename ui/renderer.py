@@ -26,7 +26,9 @@ from core.drawing import (
 from core.pose_estimator import PersonPose
 import math
 
+from core.i18n import POSE_EN, en
 from ui.hud import (
+    SUB_COLOR,
     acc_colors as _acc_colors,
     burst_rays,
     confetti as _confetti,
@@ -421,6 +423,9 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         # 박스 상단 라벨 (좌측). 예시 이미지도 참조도 없으면 안내 문구
         texts.append(TextItem("따라해 보세요", (int(w * 0.02 + w * 0.09), int(h * 0.335)),
                               max(15, h // 42), (200, 220, 255), anchor="mm"))
+        texts.append(TextItem("Follow along", (int(w * 0.02 + w * 0.09),
+                              int(h * 0.362)), max(11, h // 60), SUB_COLOR,
+                              anchor="mm", stroke=1))
         if (not example_images(state.target_pose.name) and not ref_norm
                 and get_ref3d(state.target_pose.name) is None):
             # 박스 세로 중앙에 (테두리에 걸치지 않게)
@@ -448,17 +453,29 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
         name_x = max(int(w * 0.28), 24 + text_width(n_txt, small) + 32)
         dx0 = _dots_x0(state.pose_total, w)
         name_max = (dx0 - 26 if dx0 is not None else w - 40) - name_x
+        name_en = POSE_EN.get(state.target_pose.display_name)
         texts.append(TextItem(
             ellipsize(state.target_pose.display_name, big, max(80, name_max)),
-            (name_x, int(h * 0.055)), big, (255, 255, 255), anchor="lm"))
+            (name_x, int(h * 0.047) if name_en else int(h * 0.055)), big,
+            (255, 255, 255), anchor="lm"))
+        if name_en:  # 자세명 영어 병기 (상단바 안, 작게)
+            texts.append(TextItem(name_en, (name_x + 2, int(h * 0.089)),
+                                  max(13, h // 52), SUB_COLOR, anchor="lm",
+                                  stroke=1))
         _progress_dots(frame, state.pose_index, state.pose_total, w, h)
 
     if state.state == State.IDLE:
         panel(frame, int(w * 0.12), int(h * 0.42), int(w * 0.88), int(h * 0.58),
               radius=20, color=(14, 16, 26), alpha=0.66,
               border=(200, 150, 120), border_thickness=1)
-        texts.append(TextItem(state.message, (w // 2, h // 2), max(30, h // 16),
-                              (255, 255, 255), anchor="mm"))
+        idle_en = en(state.message)
+        texts.append(TextItem(state.message,
+                              (w // 2, int(h * 0.485) if idle_en else h // 2),
+                              max(30, h // 16), (255, 255, 255), anchor="mm"))
+        if idle_en:
+            texts.append(TextItem(idle_en, (w // 2, int(h * 0.545)),
+                                  max(15, h // 42), SUB_COLOR, anchor="mm",
+                                  stroke=1))
 
     elif state.state == State.COUNTDOWN:
         corner_brackets(frame, anim_t=anim_t)
@@ -516,8 +533,10 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
               radius=24, color=(12, 14, 24), alpha=0.68,
               border=(127, 231, 160), border_thickness=2)
         _confetti(frame, anim_t)
-        texts.append(TextItem("완료!", (w // 2, int(h * 0.40)), max(34, h // 14),
+        texts.append(TextItem("완료!", (w // 2, int(h * 0.395)), max(34, h // 14),
                               (120, 255, 140), anchor="mm"))
+        texts.append(TextItem("Complete!", (w // 2, int(h * 0.44)),
+                              max(14, h // 46), SUB_COLOR, anchor="mm", stroke=1))
         score_fs = max(70, h // 6)
         score_txt = f"{score:.0f}점"
         texts.append(TextItem(score_txt, (w // 2, int(h * 0.55)),
@@ -533,21 +552,34 @@ def compose(frame: np.ndarray, primary: PersonPose | None, state: SessionState,
                                   anchor="rm", stroke=3))
         gap = next_grade_gap(score)  # 근접 목표 — 재도전 유도
         if gap:
-            texts.append(TextItem(gap, (w // 2, int(h * 0.635)),
+            texts.append(TextItem(gap, (w // 2, int(h * 0.625)),
                                   max(18, h // 30), (255, 220, 130), anchor="mm"))
+            gap_en = en(gap)
+            if gap_en:
+                texts.append(TextItem(gap_en, (w // 2, int(h * 0.655)),
+                                      max(13, h // 50), SUB_COLOR, anchor="mm",
+                                      stroke=1))
         if state.result_remaining is not None:
             n = int(np.ceil(state.result_remaining))
             nxt = (f"{n}초 뒤 다음 자세 — {state.next_pose_name}"
                    if state.next_pose_name else f"{n}초 뒤 결과 화면")
             fs2 = max(20, h // 26)
             texts.append(TextItem(ellipsize(nxt, fs2, int(w * 0.66)),
-                                  (w // 2, int(h * 0.69)), fs2,
+                                  (w // 2, int(h * 0.692)), fs2,
                                   (220, 235, 255), anchor="mm"))
+            nxt_en = en(nxt)
+            if nxt_en:
+                texts.append(TextItem(ellipsize(nxt_en, max(13, h // 50),
+                                                int(w * 0.66)),
+                                      (w // 2, int(h * 0.722)), max(13, h // 50),
+                                      SUB_COLOR, anchor="mm", stroke=1))
 
     elif state.state == State.DONE:
         translucent_rect(frame, 0, 0, w, h, alpha=0.68)
-        texts.append(TextItem("유연성 리포트", (w // 2, int(h * 0.10)),
+        texts.append(TextItem("유연성 리포트", (w // 2, int(h * 0.095)),
                               max(34, h // 14), (255, 255, 255), anchor="mm"))
+        texts.append(TextItem("Flexibility Report", (w // 2, int(h * 0.148)),
+                              max(14, h // 46), SUB_COLOR, anchor="mm", stroke=1))
         texts.append(TextItem(f"평균 {(state.final_summary or 0):.0f}점",
                               (w // 2, int(h * 0.19)), max(26, h // 20),
                               (120, 255, 140), anchor="mm"))
@@ -645,8 +677,14 @@ def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
 
     if state.state == VState.IDLE:
         translucent_rect(frame, 0, int(h * 0.42), w, int(h * 0.58))
-        texts.append(TextItem(state.message, (w // 2, h // 2), max(26, h // 18),
-                              (255, 255, 255), anchor="mm"))
+        idle_en = en(state.message)
+        texts.append(TextItem(state.message,
+                              (w // 2, int(h * 0.487) if idle_en else h // 2),
+                              max(26, h // 18), (255, 255, 255), anchor="mm"))
+        if idle_en:
+            texts.append(TextItem(idle_en, (w // 2, int(h * 0.545)),
+                                  max(14, h // 46), SUB_COLOR, anchor="mm",
+                                  stroke=1))
     elif state.state == VState.COUNTDOWN:
         texts.append(TextItem(str(int(np.ceil(state.countdown_remaining or 0))),
                               (w // 2, h // 2), max(90, h // 4), (255, 255, 255),
@@ -659,6 +697,11 @@ def compose_versus(frame: np.ndarray, p1pose: PersonPose | None,
         _confetti(frame, anim_t)
         texts.append(TextItem(state.message, (w // 2, int(h * 0.4)), max(44, h // 10),
                               wc, anchor="mm", stroke=4))
+        done_en = en(state.message)
+        if done_en:
+            texts.append(TextItem(done_en, (w // 2, int(h * 0.475)),
+                                  max(16, h // 40), SUB_COLOR, anchor="mm",
+                                  stroke=1))
         texts.append(TextItem(f"P1  {state.p1.total:.0f}점", (w // 2, int(h * 0.56)),
                               max(26, h // 20), P1_RGB, anchor="mm"))
         texts.append(TextItem(f"P2  {state.p2.total:.0f}점", (w // 2, int(h * 0.66)),

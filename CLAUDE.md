@@ -67,6 +67,7 @@ Python 단위테스트 디렉토리는 없음 — 검증은 위 헤드리스 스
 6. **배포는 onedir만** — 앱이 런타임에 `config/`에 기록하므로 onefile 불가
 7. 추론은 반드시 워커 스레드 + MediaPipe LIVE_STREAM 비동기 유지 (UI 스레드에서 추론 시 화면 버벅임)
 8. **키포인트 스무딩은 동일인 추적이 보장되는 지점(트래커 뒤/대결 자리별)에만** — 사람이 바뀌면 reset 필수. 모델은 full 기본(lite 는 떨림 심함, heavy 는 2.8배 느림 — `tools/bench_pose.py`로 재측정)
+9. **사용자 표시 문구는 한국어(주) + 영어(작은 보조) 병기** — 새 문구를 추가하면 `core/i18n.py`의 `EN` 사전(동적 문구는 `_PATTERNS`)에 짝을 등록할 것. HUD 는 `msg_pill`/`splash_text`가 자동 병기, Qt 라벨은 rich text 로 직접
 
 ## 설정 파일
 

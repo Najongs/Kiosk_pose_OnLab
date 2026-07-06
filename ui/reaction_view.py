@@ -11,7 +11,7 @@ from ui.game_view import MiniGameView
 
 class ReactionView(MiniGameView):
     game_id = "reaction"
-    loading_text = "반응속도 테스트 준비 중…"
+    loading_text = "반응속도 테스트 준비 중… · Loading Reaction Test"
 
     GO_STATES = frozenset({"signal"})
     # REST 는 부정 출발/시간 초과로도 진입하므로 SUCCESS_STATES 로 다루지 않고

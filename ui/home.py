@@ -19,6 +19,13 @@ from core.leaderboard import top_n
 from ui.game_registry import BOARD_TABS, REGISTRY
 
 _DIFF_COLOR = {"초급": "#2ee6a6", "중급": "#ffdc40", "고급": "#ff5a6a"}
+_DIFF_EN = {"초급": "Easy", "중급": "Medium", "고급": "Hard"}
+
+
+def _bi(kr: str, en_: str, size: int = 15) -> str:
+    """한국어 + 작은 영어 병기 rich text — 외국인 방문객용 보조 표기."""
+    return (f'{kr} &nbsp;<span style="font-size:{size}px; font-weight:600;'
+            f' color:#8a94ad;">{en_}</span>')
 
 
 def _glow(widget, color: str, blur: int = 28, alpha: int = 120,
@@ -68,7 +75,8 @@ class _Card(QFrame):
 class _GameCard(_Card):
     """게임 선택 카드: 이모지 + 제목 + 설명."""
 
-    def __init__(self, title: str, subtitle: str, emoji: str, accent: str):
+    def __init__(self, title: str, subtitle: str, emoji: str, accent: str,
+                 title_en: str = "", subtitle_en: str = ""):
         super().__init__(accent)
         _glow(self, accent, blur=26, alpha=60, dy=6)
         h = QHBoxLayout(self)
@@ -83,9 +91,17 @@ class _GameCard(_Card):
         h.addWidget(icon)
         v = QVBoxLayout()
         v.setSpacing(6)
-        name = QLabel(title)
+        # 제목 옆 영어 병기(작게·연하게) — 외국인도 이해, 디자인은 유지
+        name = QLabel(title if not title_en else (
+            f'{title} &nbsp;<span style="font-size:14px; font-weight:600;'
+            f' color:#8a94ad;">{title_en}</span>'))
+        name.setTextFormat(Qt.TextFormat.RichText)
+        name.setWordWrap(True)  # 영어 병기로 카드 최소폭이 커지지 않게 (좁으면 줄바꿈)
         name.setStyleSheet("font-size:22px; font-weight:800; color:#eef2fb;")
-        desc = QLabel(subtitle)
+        desc = QLabel(subtitle if not subtitle_en else (
+            f'{subtitle}<br><span style="font-size:12px; color:#6f7890;">'
+            f'{subtitle_en}</span>'))
+        desc.setTextFormat(Qt.TextFormat.RichText)
         desc.setStyleSheet("color:#9aa4bd; font-size:15px;")
         desc.setWordWrap(True)
         v.addWidget(name)
@@ -110,7 +126,9 @@ class _CourseCard(_Card):
         top = QHBoxLayout()
         name = QLabel(c["name"])
         name.setStyleSheet("font-size:21px; font-weight:800; color:#eef2fb;")
-        chip = QLabel(c.get("difficulty", "") or "코스")
+        diff = c.get("difficulty", "")
+        chip = QLabel(f"{diff} {_DIFF_EN[diff]}" if diff in _DIFF_EN
+                      else (diff or "코스"))
         chip.setStyleSheet(
             f"color:{color}; background:{color}26; border-radius:10px;"
             "padding:2px 10px; font-size:14px; font-weight:700;")
@@ -124,9 +142,10 @@ class _CourseCard(_Card):
         desc.setWordWrap(True)
         v.addWidget(desc)
 
-        meta_txt = f"{len(c['poses'])}개 자세"
+        n = len(c["poses"])
+        meta_txt = f"{n}개 자세 · {n} poses"
         if c.get("shuffle"):
-            meta_txt += "  ·  🔀 무작위"
+            meta_txt += "  ·  🔀 무작위 random"
         meta = QLabel(meta_txt)
         meta.setStyleSheet("color:#6f7890; font-size:14px; font-weight:600;")
         v.addWidget(meta)
@@ -165,9 +184,16 @@ class HomeWidget(QWidget):
         title.setStyleSheet("font-size:92px; font-weight:900; color:#2ee6a6;"
                             "letter-spacing:2px;")
         _glow(title, "#2ee6a6", blur=44, alpha=150, dy=0)
-        sub = QLabel("AI 체험 게임")
+        sub = QLabel('AI 체험 게임 &nbsp;<span style="font-size:19px;'
+                     ' font-weight:600; color:#8a94ad;">AI Motion Games</span>')
+        sub.setTextFormat(Qt.TextFormat.RichText)
         sub.setStyleSheet("font-size:34px; font-weight:800; color:#eef2fb;")
-        tag = QLabel("카메라가 몸의 움직임을 인식해요.\n게임을 고르고 점수를 겨뤄보세요.")
+        tag = QLabel("카메라가 몸의 움직임을 인식해요.<br>"
+                     "게임을 고르고 점수를 겨뤄보세요.<br>"
+                     '<span style="font-size:14px; color:#6f7890;">'
+                     "The camera tracks your moves — pick a game and beat the"
+                     " scores.</span>")
+        tag.setTextFormat(Qt.TextFormat.RichText)
         tag.setStyleSheet("color:#9aa4bd; font-size:18px; line-height:150%;")
         left.addWidget(title)
         left.addWidget(sub)
@@ -175,16 +201,16 @@ class HomeWidget(QWidget):
         left.addSpacing(18)
 
         self.name = QLineEdit()
-        self.name.setPlaceholderText("이름 입력 (선택)")
+        self.name.setPlaceholderText("이름 입력 · Name (선택)")
         self.name.setMaxLength(12)
         self.name.setFixedWidth(340)
         self.name.returnPressed.connect(self._start)
         left.addWidget(self.name)
 
-        start = QPushButton("빠른 시작  ▶")
+        start = QPushButton("빠른 시작 · Quick Start  ▶")
         start.setObjectName("primary")
         start.setFixedWidth(340)
-        start.setToolTip("기본 스트레칭 코스로 바로 시작")
+        start.setToolTip("기본 스트레칭 코스로 바로 시작 / Start the default course")
         start.clicked.connect(self._start)
         _glow(start, "#2ee6a6", blur=36, alpha=110, dy=6)
         left.addSpacing(4)
@@ -210,9 +236,10 @@ class HomeWidget(QWidget):
         right.setSpacing(12)
 
         header = QHBoxLayout()
-        self._panel_title = QLabel("게임 선택")
+        self._panel_title = QLabel(_bi("게임 선택", "Choose a Game"))
+        self._panel_title.setTextFormat(Qt.TextFormat.RichText)
         self._panel_title.setStyleSheet("font-size:26px; font-weight:800;")
-        self._back_btn = QPushButton("← 게임 선택")
+        self._back_btn = QPushButton("← 게임 선택 · Games")
         self._back_btn.setStyleSheet("font-size:16px; padding:8px 14px;")
         self._back_btn.clicked.connect(self._show_games)
         self._back_btn.hide()
@@ -233,7 +260,9 @@ class HomeWidget(QWidget):
         right.addWidget(self._pages, 5)
 
         lb_head = QHBoxLayout()
-        lb_title = QLabel("🏆 리더보드")
+        lb_title = QLabel('🏆 리더보드 &nbsp;<span style="font-size:15px;'
+                          ' font-weight:600; color:#8a94ad;">Leaderboard</span>')
+        lb_title.setTextFormat(Qt.TextFormat.RichText)
         lb_title.setStyleSheet("font-size:24px; font-weight:800; margin-top:6px;")
         lb_head.addWidget(lb_title)
         lb_head.addSpacing(10)
@@ -275,7 +304,8 @@ class HomeWidget(QWidget):
     def _build_game_page(self) -> QWidget:
         scroll, grid = self._card_grid()
         for i, g in enumerate(REGISTRY):
-            card = _GameCard(g.title, g.subtitle, g.emoji, g.accent)
+            card = _GameCard(g.title, g.subtitle, g.emoji, g.accent,
+                             g.title_en, g.subtitle_en)
             if g.id == "stretch":
                 card.clicked.connect(self._show_courses)
             else:
@@ -295,12 +325,12 @@ class HomeWidget(QWidget):
 
     def _show_courses(self) -> None:
         self._pages.setCurrentIndex(1)
-        self._panel_title.setText("코스 선택")
+        self._panel_title.setText(_bi("코스 선택", "Choose a Course"))
         self._back_btn.show()
 
     def _show_games(self) -> None:
         self._pages.setCurrentIndex(0)
-        self._panel_title.setText("게임 선택")
+        self._panel_title.setText(_bi("게임 선택", "Choose a Game"))
         self._back_btn.hide()
 
     # ---- 시작 ----
@@ -335,7 +365,8 @@ class HomeWidget(QWidget):
         self.lb.clear()
         rows = top_n(10, game=self._lb_game)
         if not rows:
-            self.lb.addItem("아직 기록이 없어요. 첫 도전자가 되어보세요!")
+            self.lb.addItem("아직 기록이 없어요. 첫 도전자가 되어보세요!"
+                            "  ·  No records yet — be the first!")
             return
         medals = ["🥇", "🥈", "🥉"]
         for i, r in enumerate(rows):

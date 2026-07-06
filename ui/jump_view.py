@@ -9,7 +9,7 @@ from ui.game_view import MiniGameView
 
 class JumpView(MiniGameView):
     game_id = "jump"
-    loading_text = "높이뛰기 준비 중…"
+    loading_text = "높이뛰기 준비 중… · Loading High Jump"
 
     GO_STATES = frozenset({"ready"})
     SUCCESS_STATES = frozenset({"rest"})

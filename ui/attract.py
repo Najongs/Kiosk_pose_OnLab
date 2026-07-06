@@ -29,7 +29,8 @@ from core.drawing import TextItem, draw_skeleton, draw_texts, panel
 from core.games.common import wrist_above_shoulder
 from core.sound import Sound
 from ui.frame_worker import FrameWorker
-from ui.hud import corner_brackets, expanding_rings, msg_pill, vignette
+from core.i18n import en
+from ui.hud import SUB_COLOR, corner_brackets, expanding_rings, msg_pill, vignette
 from ui.qtutil import bgr_to_qpixmap, fit_frame
 
 _CONFIG_DIR = os.path.join(
@@ -72,17 +73,21 @@ def compose_attract(frame: np.ndarray, poses: list, anim_t: float,
     # 중앙 유인 문구 — 사람이 보이면 즉시 반응형 문구로 전환
     big = max(40, h // 12)
     if hands_up:
-        texts.append(TextItem("좋아요! 바로 그거예요", (w // 2, int(h * 0.24)),
-                              big, (255, 230, 90), anchor="mm", stroke=5))
+        msg, mc = "좋아요! 바로 그거예요", (255, 230, 90)
         expanding_rings(frame, w // 2, int(h * 0.24), anim_t % 0.8,
                         color=(60, 200, 255))
     elif poses:
-        texts.append(TextItem("손을 번쩍 들어 보세요!", (w // 2, int(h * 0.24)),
-                              big, (120, 255, 140), anchor="mm", stroke=5))
+        msg, mc = "손을 번쩍 들어 보세요!", (120, 255, 140)
     else:
         msg = _INVITES[int(anim_t / INVITE_SECONDS) % len(_INVITES)]
-        texts.append(TextItem(msg, (w // 2, int(h * 0.24)), big,
-                              (235, 245, 255), anchor="mm", stroke=5))
+        mc = (235, 245, 255)
+    texts.append(TextItem(msg, (w // 2, int(h * 0.24)), big, mc,
+                          anchor="mm", stroke=5))
+    sub = en(msg)
+    if sub:  # 영어 병기 — 외국인 행인도 유인 문구를 읽을 수 있게
+        texts.append(TextItem(sub, (w // 2, int(h * 0.24) + int(big * 0.85)),
+                              max(16, big // 3), SUB_COLOR, anchor="mm",
+                              stroke=2))
 
     # 하단 시작 안내 필
     msg_pill(frame, texts, "화면을 터치하면 게임을 고를 수 있어요  ▶",
@@ -137,7 +142,10 @@ class AttractOverlay(QWidget):
         self._slides = QWidget(self)
         root = QVBoxLayout(self._slides)
         root.setContentsMargins(40, 50, 40, 40)
-        title = QLabel("AI 체험 게임에 도전해 보세요!")
+        title = QLabel("AI 체험 게임에 도전해 보세요!<br>"
+                       '<span style="font-size:22px; font-weight:600;'
+                       ' color:#8a94ad;">Come try the AI motion games!</span>')
+        title.setTextFormat(Qt.TextFormat.RichText)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size:52px; font-weight:900; color:#2ee6a6;"
                             "background:transparent;")
@@ -148,7 +156,7 @@ class AttractOverlay(QWidget):
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._caption.setStyleSheet("font-size:24px; color:#9aa4bd;"
                                     "background:transparent;")
-        hint = QLabel("▶ 화면을 터치하면 시작됩니다")
+        hint = QLabel("▶ 화면을 터치하면 시작됩니다 · Touch to start")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet("font-size:28px; font-weight:700; color:#eef2fb;"
                            "background:rgba(46,230,166,0.14); border-radius:16px;"

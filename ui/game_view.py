@@ -28,7 +28,7 @@ class BaseGameView(QWidget):
     exitRequested = Signal()
 
     game_id: str = "game"                    # 리더보드 기록 키
-    loading_text: str = "카메라·모델 준비 중…"
+    loading_text: str = "카메라·모델 준비 중… · Getting ready"
 
     def __init__(self):
         super().__init__()
@@ -37,7 +37,7 @@ class BaseGameView(QWidget):
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._quit_btn = QPushButton("✕", self)
         self._quit_btn.clicked.connect(self._exit)
-        self._home_btn = QPushButton("홈으로", self)
+        self._home_btn = QPushButton("홈으로 · Home", self)
         self._home_btn.clicked.connect(self._exit)
         self._home_btn.hide()
 
@@ -200,7 +200,7 @@ class MiniGameView(BaseGameView):
         super().__init__()
         self._game = None  # 검증 도구 호환용 참조(워커가 생성)
         from PySide6.QtWidgets import QLabel
-        self._record_lbl = QLabel("🏆 신기록!", self)
+        self._record_lbl = QLabel("🏆 신기록! New Record!", self)
         self._record_lbl.setStyleSheet(
             "color:#ffd75a; font-size:34px; font-weight:900;"
             "background:rgba(20,16,4,0.65); border:2px solid #ffd75a;"

@@ -21,7 +21,7 @@ from ui.renderer import compose_versus
 
 class VersusView(BaseGameView):
     game_id = "versus"
-    loading_text = "카메라·모델 준비 중… (2인)"
+    loading_text = "카메라·모델 준비 중… (2인) · Loading (2 players)"
 
     def __init__(self):
         super().__init__()

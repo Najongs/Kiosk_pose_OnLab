@@ -22,10 +22,12 @@ from core.drawing import (
     translucent_rect,
 )
 from core.games.jump import JState, JumpState
+from core.i18n import en
 from core.games.pushup import PState, PushupState
 from core.games.reaction import ReactionState, RState
 from core.pose_estimator import PersonPose
 from ui.hud import (
+    SUB_COLOR,
     burst_rays,
     confetti,
     corner_brackets,
@@ -50,8 +52,12 @@ def _top_bar(frame: np.ndarray, texts: list[TextItem], title: str,
     translucent_rect(frame, 0, 0, w, int(h * 0.11), color=(14, 16, 26), alpha=0.62)
     top_accent(frame, int(h * 0.11), anim_t)
     big = max(26, h // 20)
-    texts.append(TextItem(title, (24, int(h * 0.055)), big,
-                          (255, 255, 255), anchor="lm"))
+    title_en = en(title)
+    ty = int(h * 0.047) if title_en else int(h * 0.055)
+    texts.append(TextItem(title, (24, ty), big, (255, 255, 255), anchor="lm"))
+    if title_en:  # 제목 아래 영어 병기(작게) — 상단바 높이는 그대로
+        texts.append(TextItem(title_en, (26, int(h * 0.089)),
+                              max(13, h // 52), SUB_COLOR, anchor="lm", stroke=1))
     if sub:  # 제목 폭을 재서 겹치지 않게 배치
         sx = max(int(w * 0.42), 24 + text_width(title, big) + 32)
         texts.append(TextItem(sub, (sx, int(h * 0.055)),
@@ -65,11 +71,21 @@ def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
     burst_rays(frame, w // 2, int(h * 0.46), anim_t,
                color=GOLD if score >= 85 else ACCENT)
     confetti(frame, anim_t)
-    panel(frame, int(w * 0.16), int(h * 0.22), int(w * 0.84), int(h * 0.80),
+    # 영어 병기 줄 수에 따라 패널 바닥을 늘린다 (겹침·넘침 방지)
+    fs_est = max(20, h // 26)
+    est = int(h * 0.575)
+    for line in lines + ["한 번 더?"]:
+        est += int(fs_est * (1.8 if en(line) else 1.5))
+    panel(frame, int(w * 0.16), int(h * 0.22), int(w * 0.84),
+          max(int(h * 0.80), min(int(h * 0.92), est + int(fs_est * 0.6))),
           radius=24, color=(12, 14, 24), alpha=0.72,
           border=ACCENT, border_thickness=2)
-    texts.append(TextItem(headline, (w // 2, int(h * 0.32)), max(34, h // 14),
+    texts.append(TextItem(headline, (w // 2, int(h * 0.305)), max(34, h // 14),
                           (120, 255, 140), anchor="mm"))
+    head_en = en(headline)
+    if head_en:
+        texts.append(TextItem(head_en, (w // 2, int(h * 0.355)),
+                              max(15, h // 42), SUB_COLOR, anchor="mm", stroke=1))
     grade, grade_rgb = grade_of(score)
     score_fs = max(60, h // 8)
     score_txt = f"{score:.0f}점"
@@ -79,14 +95,26 @@ def _done_panel(frame: np.ndarray, texts: list[TextItem], headline: str,
     texts.append(TextItem(grade, (w // 2 + half + int(w * 0.05), int(h * 0.45)),
                           max(50, h // 10), grade_rgb, anchor="mm", stroke=5))
     fs = max(20, h // 26)
-    y = int(h * 0.58)
+    ss = max(13, int(fs * 0.62))
+    y = int(h * 0.575)
     for line in lines:
         texts.append(TextItem(line, (w // 2, y), fs, (220, 235, 255), anchor="mm"))
-        y += int(fs * 1.6)
+        sub = en(line)
+        if sub:  # 영어 병기 한 줄 (작게) — 줄 간격을 좁혀 패널 안에 수렴
+            y += int(fs * 1.02)
+            texts.append(TextItem(sub, (w // 2, y), ss, SUB_COLOR,
+                                  anchor="mm", stroke=1))
+            y += int(fs * 0.78)
+        else:
+            y += int(fs * 1.5)
     gap = next_grade_gap(score)  # 근접 목표 — 재도전 유도
     if gap:
-        texts.append(TextItem(f"한 번 더?  {gap}", (w // 2, y),
-                              fs, (255, 220, 130), anchor="mm"))
+        line = f"한 번 더?  {gap}"
+        texts.append(TextItem(line, (w // 2, y), fs, (255, 220, 130), anchor="mm"))
+        sub = en(line)
+        if sub:
+            texts.append(TextItem(sub, (w // 2, y + int(fs * 1.02)), ss,
+                                  SUB_COLOR, anchor="mm", stroke=1))
 
 
 def compose_reaction(frame: np.ndarray, primary: PersonPose | None,
@@ -287,6 +315,9 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
         texts.append(TextItem("측면(옆모습)이 잘 보이면 더 정확해요",
                               (w // 2, int(h * 0.60)), max(18, h // 32),
                               (170, 185, 210), anchor="mm"))
+        texts.append(TextItem(en("측면(옆모습)이 잘 보이면 더 정확해요") or "",
+                              (w // 2, int(h * 0.645)), max(13, h // 48),
+                              SUB_COLOR, anchor="mm", stroke=1))
     elif state.state == PState.COUNTING:
         # 큰 개수 카운터 (우측) — 내려간(down) 동안 테두리가 골드로 달아오름
         down = state.phase == "down"
@@ -297,7 +328,7 @@ def compose_pushup(frame: np.ndarray, primary: PersonPose | None,
                               int(max(70, h // 6) * (1.08 if down else 1.0)),
                               (255, 230, 140) if down else (255, 255, 255),
                               anchor="mm", stroke=5))
-        texts.append(TextItem("개", (int(w * 0.845), int(h * 0.52)),
+        texts.append(TextItem("개 · reps", (int(w * 0.845), int(h * 0.52)),
                               max(20, h // 28), (200, 220, 255), anchor="mm"))
         # 팔꿈치 굽힘 게이지 (하단): up_angle→down_angle 구간을 0→1 로.
         # 임계 근처에서 색이 골드로 변해 "여기까지 내려가면 인정"을 보여준다

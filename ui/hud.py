@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from core.drawing import TextItem, ellipsize, panel, text_width
+from core.i18n import en
 
 
 def grade_of(score: float) -> tuple[str, tuple[int, int, int]]:
@@ -53,10 +54,19 @@ def dots_x0(total: int, w: int) -> int | None:
     return w - 28 - (total - 1) * 20
 
 
+SUB_COLOR = (168, 178, 198)  # 영어 보조 표기 공용 색 (RGB — 은은한 회청)
+
+
 def msg_pill(frame: np.ndarray, texts: list[TextItem], msg: str, cy: int,
-             size: int, color=(255, 255, 255)) -> None:
-    """텍스트 폭에 맞춘 둥근 필 패널 + 중앙 텍스트. 길면 폰트 축소 후 말줄임."""
+             size: int, color=(255, 255, 255),
+             sub: str | None = "auto") -> None:
+    """텍스트 폭에 맞춘 둥근 필 패널 + 중앙 텍스트. 길면 폰트 축소 후 말줄임.
+
+    sub: 영어 보조 표기 한 줄(작게, 아래). 기본 "auto" 는 core.i18n 사전에서
+    자동으로 찾고, 없으면 한국어만 표시한다. None 이면 강제로 끈다."""
     h, w = frame.shape[:2]
+    if sub == "auto":
+        sub = en(msg)
     s = size
     max_w = int(w * 0.86)
     while s > 14 and text_width(msg, s) > max_w:
@@ -65,10 +75,27 @@ def msg_pill(frame: np.ndarray, texts: list[TextItem], msg: str, cy: int,
     tw = text_width(msg, s)
     pad_x = int(s * 0.9)
     pad_y = int(s * 0.55)
-    y1, y2 = cy - s // 2 - pad_y, cy + s // 2 + pad_y
+    if not sub:
+        y1, y2 = cy - s // 2 - pad_y, cy + s // 2 + pad_y
+        panel(frame, w // 2 - tw // 2 - pad_x, y1, w // 2 + tw // 2 + pad_x, y2,
+              radius=(y2 - y1) // 2, color=(14, 16, 26), alpha=0.55)
+        texts.append(TextItem(msg, (w // 2, cy), s, color, anchor="mm"))
+        return
+    # 2줄 필: 한국어(주) 위 + 영어(보조, 55% 크기) 아래 — 필은 cy 중심 유지
+    ss = max(13, int(s * 0.55))
+    sub = ellipsize(sub, ss, max_w)
+    gap = max(3, s // 8)
+    tw = max(tw, text_width(sub, ss))
+    total = s + gap + ss
+    y1 = cy - total // 2 - pad_y
+    y2 = cy + total - total // 2 + pad_y
     panel(frame, w // 2 - tw // 2 - pad_x, y1, w // 2 + tw // 2 + pad_x, y2,
-          radius=(y2 - y1) // 2, color=(14, 16, 26), alpha=0.55)
-    texts.append(TextItem(msg, (w // 2, cy), s, color, anchor="mm"))
+          radius=min(int(s * 0.8), (y2 - y1) // 2), color=(14, 16, 26),
+          alpha=0.55)
+    cy_main = cy - total // 2 + s // 2
+    texts.append(TextItem(msg, (w // 2, cy_main), s, color, anchor="mm"))
+    texts.append(TextItem(sub, (w // 2, cy_main + s // 2 + gap + ss // 2), ss,
+                          SUB_COLOR, anchor="mm", stroke=1))
 
 
 def progress_dots(frame: np.ndarray, index: int, total: int, w: int, h: int) -> None:
@@ -296,15 +323,25 @@ def stage_light(frame: np.ndarray, primary, active: bool) -> None:
 
 
 def splash_text(texts: list[TextItem], w: int, h: int, msg: str,
-                age: float, color=(255, 230, 90)) -> None:
-    """상태 전환 순간의 대형 스플래시("시작!") — 크게 떴다가 안착하며 사라짐."""
+                age: float, color=(255, 230, 90),
+                sub: str | None = "auto") -> None:
+    """상태 전환 순간의 대형 스플래시("시작!") — 크게 떴다가 안착하며 사라짐.
+    sub: 영어 보조 표기 (기본 auto = i18n 사전 자동)."""
     if age < 0 or age > 0.7:
         return
+    if sub == "auto":
+        sub = en(msg)
     k = age / 0.7
     size = int(max(80, h // 5) * (1.45 - 0.45 * min(1.0, k * 2)))
-    c = tuple(int(v * (1.0 - max(0.0, k - 0.5) * 2)) for v in color)
+    fade = 1.0 - max(0.0, k - 0.5) * 2
+    c = tuple(int(v * fade) for v in color)
     texts.append(TextItem(msg, (w // 2, int(h * 0.42)), size, c,
                           anchor="mm", stroke=6))
+    if sub:
+        ss = max(24, size // 4)
+        sc = tuple(int(v * fade) for v in SUB_COLOR)
+        texts.append(TextItem(sub, (w // 2, int(h * 0.42) + size // 2 + ss),
+                              ss, sc, anchor="mm", stroke=3))
 
 
 def draw_popups(frame: np.ndarray, texts: list[TextItem], popups: list[dict],

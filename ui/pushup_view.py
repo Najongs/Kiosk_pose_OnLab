@@ -9,7 +9,7 @@ from ui.game_view import MiniGameView
 
 class PushupView(MiniGameView):
     game_id = "pushup"
-    loading_text = "팔굽혀펴기 검사 준비 중…"
+    loading_text = "팔굽혀펴기 검사 준비 중… · Loading Push-ups"
 
     GO_STATES = frozenset({"counting"})
 

@@ -26,11 +26,11 @@ class SessionView(BaseGameView):
 
     def __init__(self):
         super().__init__()
-        self._skip_btn = QPushButton("건너뛰기 ▶", self)
+        self._skip_btn = QPushButton("건너뛰기 · Skip ▶", self)
         self._skip_btn.clicked.connect(self._on_skip)
         self._skip_btn.hide()
         self._request_skip = None  # build() 가 세션 클로저의 skip 플래그 setter 를 넣음
-        self._record_lbl = QLabel("🏆 신기록!", self)
+        self._record_lbl = QLabel("🏆 신기록! New Record!", self)
         self._record_lbl.setStyleSheet(
             "color:#ffd75a; font-size:34px; font-weight:900;"
             "background:rgba(20,16,4,0.65); border:2px solid #ffd75a;"
