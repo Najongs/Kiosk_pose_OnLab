@@ -25,6 +25,14 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SEP = ";" if sys.platform == "win32" else ":"
 
+# CI 등 비-UTF8 콘솔(cp1252)에서 한국어 안내 출력이 UnicodeEncodeError 로
+# 빌드 성공을 실패로 둔갑시키지 않도록 — 출력 불가 문자는 ?로 대체
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 # 빌드 전 사전 점검: 이 인터프리터에서 임포트가 되어야 exe 에도 들어간다.
 # (pyinstaller 를 다른 파이썬에 설치해 두고 빌드하면 "빌드는 성공,
 #  실행하면 ModuleNotFoundError" 가 되는 것이 최다 빈도 사고)

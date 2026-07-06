@@ -15,6 +15,9 @@ on:
   push:
     tags: ["v*"]
 
+env:
+  PYTHONUTF8: "1"  # Windows 러너 콘솔(cp1252)에서 한국어 출력 깨짐 방지
+
 jobs:
   build:
     runs-on: windows-latest
